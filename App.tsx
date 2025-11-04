@@ -1,20 +1,16 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+// Точка входа приложения. Здесь в будущем будет настраивать главный стек навигации.
 
+import React from 'react';
+import HomeScreen from './src/screens/HomeScreen';
+import GameScreen from './src/screens/GameScreen';
+import InstructionsScreen from './src/screens/InstructionsScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
+// Экспортируем главный компонент приложения.
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <HomeScreen/>
+    // <GameScreen/>
+    // <InstructionsScreen/>
+    // <SettingsScreen/>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
