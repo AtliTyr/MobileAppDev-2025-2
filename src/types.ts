@@ -89,3 +89,15 @@ export const TETROMINOES: Record<TetrominoType, { shape: number[][]; color: stri
     color: '#f0a000',
   },
 };
+
+export interface AudioSettings {
+  volume: number;
+  musicEnabled: boolean;
+  soundEffectsEnabled: boolean;
+}
+
+export interface GameLoopState {
+  isRunning: boolean;
+  lastUpdate: number;
+  accumulatedTime: number;
+}

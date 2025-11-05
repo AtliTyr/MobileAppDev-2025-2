@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, StatusBar, TouchableOpacity, Text, ImageBackground, Alert } from 'react-native';
 import TetrisBoard from '../components/TetrisBoard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { useGameState } from '../hooks/useGameState';
 import { useGameSave } from '../hooks/useGameSave';
+import { useGameLoop } from '../hooks/useGameLoop';
 
 import TetrominoBox from '../components/TetrominoBox';
 
@@ -18,7 +19,8 @@ export default function GameScreen() {
     movePiece,
     rotatePiece,
     loadGameState,
-    
+    updateScore,
+
     // Хуки для отладки
     setScore,
     addScore,
@@ -36,36 +38,94 @@ export default function GameScreen() {
   const { saveGame, deleteSave } = useGameSave();
   const [isSaving, setIsSaving] = useState(false);
 
-  // useEffect(() => {
-  //   // Если пришли с флагом загрузки сохранения
-  //   if (route.params?.loadSavedState && route.params?.savedGameState) {
-  //     loadGameState(route.params.savedGameState);
-  //   } else {
-  //     initializeGame();
-  //   }
-  // }, [route.params]); // ← Добавляем зависимость
+  // Обработчик игрового тика (движение фигуры вниз)
+  const handleGameTick = useCallback(() => {
+    console.log('Game tick - moving piece down');
+    movePiece('down');
+  }, [movePiece]);
+  // Обработчик очистки линий
+  const handleLineClear = useCallback((clearedLines: number) => {
+    console.log(`Cleared ${clearedLines} lines`);
+    updateScore(clearedLines);
+  }, [updateScore]);
 
+  // Обработчик повышения уровня
+  const handleLevelUp = useCallback((newLevel: number) => {
+    console.log(`Level up to ${newLevel}`);
+  }, []);
+
+  // Обработчик конца игры
+  const handleGameOver = useCallback(() => {
+    console.log('Game over!');
+    Alert.alert('Конец игры', `Ваш счет: ${gameState.score}`);
+  }, [gameState.score]);
+
+  // Хук игрового цикла
+  const { startGameLoop, stopGameLoop } = useGameLoop({
+    gameState,
+    onGameTick: handleGameTick,
+    onLineClear: handleLineClear,
+    onLevelUp: handleLevelUp,
+    onGameOver: handleGameOver,
+  });
+
+  // Инициализация игры
   useEffect(() => {
     initializeGame();
   }, [initializeGame]);
-  
+
+  // Запуск/остановка игрового цикла при изменении состояния игры
+  useEffect(() => {
+    if (gameState.isGameOver) {
+      console.log('Game over - stopping game loop');
+      stopGameLoop();
+      return;
+    }
+
+    if (gameState.isPaused) {
+      console.log('Game paused - stopping game loop');
+      stopGameLoop();
+    } else {
+      console.log('Game running - starting game loop');
+      startGameLoop();
+    }
+
+    return () => {
+      stopGameLoop();
+    };
+  }, [gameState.isPaused, gameState.isGameOver, startGameLoop, stopGameLoop]);
+
   // Функция сохранения и выхода
   const handleSaveAndExit = async () => {
     setIsSaving(true);
+    stopGameLoop();
+    
     const success = await saveGame(gameState);
     setIsSaving(false);
     
     if (success) {
-      Alert.alert('Успех', 'Игра сохранена!', [
-        { 
-          text: 'OK', 
-          onPress: () => { } // Возврат в главное меню через навигацию
-        }
-      ]);
+      Alert.alert('Успех', 'Игра сохранена!');
     } else {
       Alert.alert('Ошибка', 'Не удалось сохранить игру');
+      if (!gameState.isPaused && !gameState.isGameOver) {
+        startGameLoop();
+      }
     }
   };
+
+  // Обработчик паузы
+  const handlePause = () => {
+    togglePause();
+  };
+
+  // Отладочная информация
+  useEffect(() => {
+    console.log('Game state updated:', {
+      isPaused: gameState.isPaused,
+      isGameOver: gameState.isGameOver,
+      gameSpeed: gameState.gameSpeed
+    });
+  }, [gameState.isPaused, gameState.isGameOver, gameState.gameSpeed]);
 
   // Функция выхода без сохранения
   const handleExitWithoutSave = () => {
@@ -106,7 +166,7 @@ export default function GameScreen() {
       </View>
       
       <View style={pausePanel.container}>
-        <TouchableOpacity onPress={togglePause}>
+        <TouchableOpacity onPress={handlePause}>
           <MaterialCommunityIcons name="pause-box-outline" size={30} color="black" style={pausePanel.pauseIcon}/>
         </TouchableOpacity>
       </View>
@@ -178,6 +238,10 @@ export default function GameScreen() {
             <Text>↻</Text>
           </TouchableOpacity>
         </View>
+        <View style={debugControls.container}>
+          <Text>Скорость: {gameState.gameSpeed}ms</Text>
+          <Text>Состояние: {gameState.isPaused ? 'Пауза' : gameState.isGameOver ? 'Конец' : 'Игра'}</Text>
+        </View>
       </View>
 
       {/* Состояние паузы - обновляемое */}
@@ -186,7 +250,7 @@ export default function GameScreen() {
           <View style={overlayStyles.message}>
             <Text style={overlayStyles.text}>ПАУЗА</Text>
             
-            <TouchableOpacity onPress={togglePause} style={overlayStyles.button}>
+            <TouchableOpacity onPress={handlePause} style={overlayStyles.button}>
               <Text style={overlayStyles.buttonText}>Продолжить</Text>
             </TouchableOpacity>
             
