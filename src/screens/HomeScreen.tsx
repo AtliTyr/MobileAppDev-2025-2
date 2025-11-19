@@ -26,8 +26,12 @@ export default function HomeScreen() {
         title="Инструкции"
         onPress={() => {}}
       />
-
-      <Text style={styles.footer}>Разработка: Лабораторная №2 — базовый макет</Text>
+      {/* Кнопка словаря. При нажатии переходим на экран Dictionary */}
+      <PrimaryButton
+        title="Словарь"
+        onPress={() => {}}
+      />
+      <Text style={styles.footer}>Разработка: Лабораторная №3 — Управление ресурсами и использование хуков</Text>
     </View>
   );
 }
