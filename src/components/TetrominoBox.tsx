@@ -1,58 +1,74 @@
+// src/components/TetrominoBox.tsx
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
-import { TETROMINOES, TetrominoType } from '../types';
+import { View, StyleSheet, Text } from 'react-native';
+import { Tetromino } from '../types/tetromino';
 
 interface Props {
-  style?: ViewStyle | ViewStyle[];
-  tetrominoType: TetrominoType;
+  tetromino: Tetromino | null;
+  size?: 'small' | 'medium';
+  showLetters?: boolean;
 }
 
-export default function TetrominoBox({ style, tetrominoType }: Props) {
-  const { shape, color } = TETROMINOES[tetrominoType];
-  
-  // Создаем массив только с видимыми клетками
-  const visibleCells: { row: number; col: number }[] = [];
-  
-  for (let row = 0; row < shape.length; row++) {
-    for (let col = 0; col < shape[row].length; col++) {
-      if (shape[row][col]) {
-        visibleCells.push({ row, col });
-      }
-    }
+export default function TetrominoBox({ tetromino, size = 'medium', showLetters = true }: Props) {
+  if (!tetromino) {
+    return (
+      <View style={[styles.container, styles[size]]}>
+        <View style={styles.emptyBox}>
+          <Text style={styles.emptyText}>—</Text>
+        </View>
+      </View>
+    );
   }
 
-  // Находим границы фигуры для правильного позиционирования
-  const minRow = Math.min(...visibleCells.map(cell => cell.row));
-  const maxRow = Math.max(...visibleCells.map(cell => cell.row));
-  const minCol = Math.min(...visibleCells.map(cell => cell.col));
-  const maxCol = Math.max(...visibleCells.map(cell => cell.col));
+  const color = tetromino.cells.flat().find(cell => !cell.isEmpty)?.color || '#666666';
+  const letters = tetromino.cells.flat()
+    .filter(cell => !cell.isEmpty)
+    .map(cell => cell.letter)
+    .join('');
 
-  const figureWidth = maxCol - minCol + 1;
-  const figureHeight = maxRow - minRow + 1;
+  const cellSize = size === 'medium' ? 16 : 14;
 
   return (
-    <View style={[styles.container, style]}>
-      <View style={[
-        styles.figureContainer,
-        { 
-          width: figureWidth * 14 + 4, // 12px ячейка + 2px margin
-          height: figureHeight * 14 + 4
-        }
-      ]}>
-        {visibleCells.map((cell, index) => (
-          <View
-            key={`cell-${index}`}
-            style={[
-              styles.cell,
-              {
-                backgroundColor: color,
-                position: 'absolute',
-                left: (cell.col - minCol) * 14, // 12px + 2px margin
-                top: (cell.row - minRow) * 14,
-              }
-            ]}
-          />
-        ))}
+    <View style={[styles.container, styles[size]]}>
+      <View style={styles.box}>
+        {/* Мини-поле с увеличенными клетками */}
+        <View style={styles.miniGrid}>
+          {tetromino.cells.map((row, rowIndex) => (
+            <View key={rowIndex} style={styles.miniRow}>
+              {row.map((cell, colIndex) => (
+                <View
+                  key={colIndex}
+                  style={[
+                    styles.miniCell,
+                    { 
+                      width: cellSize,
+                      height: cellSize,
+                    },
+                    !cell.isEmpty && { 
+                      backgroundColor: color + '80', // Менее прозрачный
+                    }
+                  ]}
+                >
+                  {!cell.isEmpty && (
+                    <Text style={[
+                      styles.miniLetter,
+                      { fontSize: size === 'medium' ? 10 : 8 }
+                    ]}>
+                      {cell.letter}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
+        
+        {/* Буквы фигуры - показываем только если нужно */}
+        {showLetters && (
+          <Text style={styles.letters}>
+            {letters}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -60,21 +76,65 @@ export default function TetrominoBox({ style, tetrominoType }: Props) {
 
 const styles = StyleSheet.create({
   container: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  small: {
+    width: 60,
+    height: 60,
+  },
+  medium: {
+    width: 70,
+    height: 70,
+  },
+  box: {
+    width: '100%',
+    height: '100%',
+    borderWidth: 2,
+    borderColor: '#000', // Черная граница
+    borderRadius: 6,
     padding: 4,
+    justifyContent: 'space-between',
+    backgroundColor: '#fafafa',
+  },
+  emptyBox: {
+    width: '100%',
+    height: '100%',
+    borderWidth: 2,
+    borderColor: '#ccc',
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    minHeight: 40, // Минимальная высота для консистентности
-    minWidth: 40,  // Минимальная ширина для консистентности
+    backgroundColor: '#f5f5f5',
   },
-  figureContainer: {
-    position: 'relative',
-    justifyContent: 'center',
+  emptyText: {
+    fontSize: 16,
+    color: '#999',
+  },
+  miniGrid: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  cell: {
-    width: 15,
-    height: 15,
-    borderWidth: 0.5,
+  miniRow: {
+    flexDirection: 'row',
+  },
+  miniCell: {
     margin: 1,
+    borderRadius: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  miniLetter: {
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  letters: {
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 2,
+    color: '#000',
   },
 });

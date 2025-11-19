@@ -1,15 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import Slider from '@react-native-community/slider';
 import PrimaryButton from '../components/PrimaryButton';
 
-export default function SettingsScreen() {
-  const [musicEnabled, setMusicEnabled] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [musicVolume, setMusicVolume] = useState(0.7);
-  const [soundVolume, setSoundVolume] = useState(0.8);
-  const [brightness, setBrightness] = useState(0.8);
 
+export default function SettingsScreen({}) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>НАСТРОЙКИ</Text>
@@ -20,24 +15,24 @@ export default function SettingsScreen() {
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Музыка</Text>
             <Text style={styles.settingValue}>
-              {musicEnabled ? 'Вкл' : 'Выкл'} ({Math.round(musicVolume * 100)}%)
+              Вкл (70%)
             </Text>
           </View>
           <Switch
-            value={musicEnabled}
-            onValueChange={setMusicEnabled}
+            value={true}
+            onValueChange={() => {}}
           />
         </View>
         
-        {musicEnabled && (
+        {true && (
           <View style={styles.sliderContainer}>
             <Text style={styles.sliderLabel}>Громкость музыки</Text>
             <Slider
               style={styles.slider}
               minimumValue={0}
               maximumValue={1}
-              value={musicVolume}
-              onValueChange={setMusicVolume}
+              value={0.7}
+              onValueChange={() => {}}
             />
           </View>
         )}
@@ -47,24 +42,24 @@ export default function SettingsScreen() {
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Звуки</Text>
             <Text style={styles.settingValue}>
-              {soundEnabled ? 'Вкл' : 'Выкл'} ({Math.round(soundVolume * 100)}%)
+              Вкл (80%)
             </Text>
           </View>
           <Switch
-            value={soundEnabled}
-            onValueChange={setSoundEnabled}
+            value={true}
+            onValueChange={() => {}}
           />
         </View>
         
-        {soundEnabled && (
+        {true && (
           <View style={styles.sliderContainer}>
             <Text style={styles.sliderLabel}>Громкость звуков</Text>
             <Slider
               style={styles.slider}
               minimumValue={0}
               maximumValue={1}
-              value={soundVolume}
-              onValueChange={setSoundVolume}
+              value={0.8}
+              onValueChange={() => {}}
             />
           </View>
         )}
@@ -76,10 +71,10 @@ export default function SettingsScreen() {
             style={styles.slider}
             minimumValue={0.1}
             maximumValue={1}
-            value={brightness}
-            onValueChange={setBrightness}
+            value={0.8}
+            onValueChange={() => {}}
           />
-          <Text style={styles.sliderValue}>{Math.round(brightness * 100)}%</Text>
+          <Text style={styles.sliderValue}>80%</Text>
         </View>
       </View>
 
@@ -87,11 +82,6 @@ export default function SettingsScreen() {
         <PrimaryButton
           title="Сбросить настройки"
           onPress={() => {
-            setMusicEnabled(true);
-            setSoundEnabled(true);
-            setMusicVolume(0.7);
-            setSoundVolume(0.8);
-            setBrightness(0.8);
           }}
         />
         
@@ -111,7 +101,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     paddingTop: 50,
-    backgroundColor: '#E7ECEF',
   },
   title: {
     fontSize: 28,

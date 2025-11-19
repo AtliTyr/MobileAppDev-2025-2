@@ -1,65 +1,74 @@
-// Компонент игрового поля Tetris (лабораторная №2)
-// Отрисовывает визуально похожее поле на классический Tetris с синим оформлением.
-
+// src/components/TetrisBoard.tsx
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
-import { GameBoard, Tetromino } from '../types';
+import { View, StyleSheet, ViewStyle, Text } from 'react-native';
+import { GameBoard } from '../types/game';
+import { Tetromino } from '../types/tetromino';
 
 interface Props {
-  style?: ViewStyle | ViewStyle[];
   board: GameBoard;
-  currentPiece?: Tetromino | null;
+  currentTetromino?: Tetromino | null;
+  style?: ViewStyle | ViewStyle[];
 }
 
-// Константы, описывающие размеры игрового поля
 const ROWS = 20;
 const COLS = 10;
 
-export default function TetrisBoard({ style, board, currentPiece }: Props) {
-  // Функция для отрисовки ячейки
+export default function TetrisBoard({ board, currentTetromino, style }: Props) {
   const renderCell = (row: number, col: number) => {
-    let cellColor = 'transparent';
-    
-    // Проверяем, находится ли здесь текущая фигура
-    if (currentPiece) {
-      const { shape, position, color } = currentPiece;
-      const localX = col - position.x;
-      const localY = row - position.y;
+    // Проверяем, находится ли клетка в текущей тетромино
+    if (currentTetromino) {
+      const { x, y } = currentTetromino.position;
       
-      if (
-        localY >= 0 && localY < shape.length &&
-        localX >= 0 && localX < shape[0].length &&
-        shape[localY][localX]
-      ) {
-        cellColor = color;
+      for (let i = 0; i < currentTetromino.cells.length; i++) {
+        for (let j = 0; j < currentTetromino.cells[i].length; j++) {
+          if (currentTetromino.cells[i][j].isEmpty) continue;
+          
+          if (row === y + i && col === x + j) {
+            return (
+              <View 
+                key={`${row}-${col}`} 
+                style={[
+                  styles.cell, 
+                  { backgroundColor: currentTetromino.cells[i][j].color }
+                ]}
+              >
+                <Text style={styles.letter}>
+                  {currentTetromino.cells[i][j].letter}
+                </Text>
+              </View>
+            );
+          }
+        }
       }
     }
-    
-    // Проверяем статичные блоки на поле
-    if (board[row] && board[row][col]) {
-      cellColor = board[row][col] as string;
+
+    // Проверяем статичные клетки на поле
+    const cell = board[row]?.[col];
+    if (cell) {
+      return (
+        <View 
+          key={`${row}-${col}`} 
+          style={[styles.cell, { backgroundColor: cell.color }]}
+        >
+          <Text style={styles.letter}>
+            {cell.letter}
+          </Text>
+        </View>
+      );
     }
 
+    // Пустая клетка
     return (
-      <View 
-        key={`${row}-${col}`} 
-        style={[
-          styles.cell, 
-          { backgroundColor: cellColor },
-          cellColor != 'transparent' ? { borderColor: 'black', borderWidth: 0.2 } : {} 
-        ]} 
-      />
+      <View key={`${row}-${col}`} style={[styles.cell, styles.emptyCell]} />
     );
   };
 
   return (
     <View style={[styles.boardOuter, style]}>
       <View style={styles.boardInner}>
-        {Array.from({ length: ROWS }, (_, rowIndex) => (
-          <View key={rowIndex} style={styles.row}>
-            {Array.from({ length: COLS }, (_, colIndex) => 
-              renderCell(rowIndex, colIndex)
-            )}
+        {Array(ROWS).fill(0).map((_, row) => (
+          <View key={row} style={styles.row}>
+            {Array(COLS).fill(0).map((_, col) => renderCell(row, col))}
           </View>
         ))}
       </View>
@@ -70,8 +79,15 @@ export default function TetrisBoard({ style, board, currentPiece }: Props) {
 const styles = StyleSheet.create({
   boardOuter: {
     borderWidth: 3,
+    padding: 3,
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+    backgroundColor: '#000000',
   },
   boardInner: {
+    borderWidth: 1,
+    borderColor: '#333333',
   },
   row: {
     flexDirection: 'row',
@@ -79,5 +95,17 @@ const styles = StyleSheet.create({
   cell: {
     width: 25,
     height: 25,
+    borderWidth: 0.5,
+    borderColor: '#333333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyCell: {
+    backgroundColor: '#111111',
+  },
+  letter: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });

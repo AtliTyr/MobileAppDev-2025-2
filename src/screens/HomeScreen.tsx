@@ -1,94 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+// Экран приветствия/меню. Отсюда пользователь может начать игру и перейти к настройкам.
+// Демонстрируем базовые UI-компоненты: Text, Button, View, TouchableOpacity.
+
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import PrimaryButton from '../components/PrimaryButton';
-import { useGameSave } from '../hooks/useGameSave';
 
 export default function HomeScreen() {
-  const { hasSavedGame, loadGame, deleteSave } = useGameSave();
-  const [hasSave, setHasSave] = useState(false);
-
-  // Проверяем наличие сохранения при загрузке экрана
-  useEffect(() => {
-    checkForSavedGame();
-  }, []);
-
-  const checkForSavedGame = async () => {
-    const saved = await hasSavedGame();
-    setHasSave(saved);
-  };
-
-  // Функция продолжения игры
-  const handleContinueGame = async () => {
-    const savedGame = await loadGame();
-    if (savedGame) {
-      // Добавим здесь переход через навигацию на экран игры и передаем сохраненное состояние
-      // 
-    } else {
-      Alert.alert('Ошибка', 'Не удалось загрузить сохраненную игру');
-      setHasSave(false);
-    }
-  };
-
-  // Функция удаления сохранения
-  const handleDeleteSave = () => {
-    Alert.alert(
-      'Удаление сохранения',
-      'Вы уверены, что хотите удалить сохраненную игру?',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { 
-          text: 'Удалить', 
-          style: 'destructive',
-          onPress: async () => {
-            await deleteSave();
-            setHasSave(false);
-          }
-        }
-      ]
-    );
-  };
-
   return (
     <View style={styles.container}>
+      {/* Заголовок приложения */}
       <Text style={styles.title}>TETRIS</Text>
 
-      {/* Кнопка продолжения игры (показывается только если есть сохранение) */}
-      {hasSave && (
-        <>
-          <PrimaryButton
-            title="Продолжить игру"
-            onPress={handleContinueGame}
-            style={styles.continueButton}
-          />
-          <PrimaryButton
-            title="Удалить сохранение"
-            onPress={handleDeleteSave}
-            style={styles.deleteButton}
-          />
-        </>
-      )}
-
+      {/* Кнопка начала игры. При нажатии переходим на экран Game */}
       <PrimaryButton
-        title="Новая игра"
+        title="Начать игру"
         onPress={() => {}}
       />
-      
+      {/* Кнопка настроек. При нажатии переходим на экран Settings */}
       <PrimaryButton
         title="Настройки"
         onPress={() => {}}
       />
-      
+      {/* Кнопка инструкций. При нажатии переходим на экран Instructions */}
       <PrimaryButton
         title="Инструкции"
         onPress={() => {}}
       />
 
-      <PrimaryButton
-        title="Словарь"
-        onPress={() => {}}
-      />
-
-      <Text style={styles.footer}>Разработка: Лабораторная №3 — Управление ресурсами и использование хуков</Text>
+      <Text style={styles.footer}>Разработка: Лабораторная №2 — базовый макет</Text>
     </View>
   );
 }
@@ -103,10 +42,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     marginBottom: 24,
-  },
-  continueButton: {
-  },
-  deleteButton: {
   },
   footer: {
     position: 'absolute',

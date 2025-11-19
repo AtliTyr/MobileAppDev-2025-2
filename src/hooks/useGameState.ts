@@ -1,481 +1,223 @@
+// hooks/useGameState.ts
 import { useState, useCallback } from 'react';
-import { GameState, Tetromino, TetrominoType, TETROMINOES, GameBoard } from '../types';
+import { GameState, GameConfig, DEFAULT_GAME_CONFIG } from '../types/game';
+import { Tetromino } from '../types/tetromino';
+import { TetrominoFactory, TetrominoUtils } from '../utils/tetrominoFactory';
+import { useGameLoop } from './useGameLoop';
 
-const ROWS = 20;
-const COLS = 10;
-
-// Создание пустого поля
-const createEmptyBoard = (): GameBoard => 
-  Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-
-// Создание случайной фигуры
-const createRandomTetromino = (): Tetromino => {
-  const types: TetrominoType[] = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
-  const randomType = types[Math.floor(Math.random() * types.length)];
-  const { shape, color } = TETROMINOES[randomType];
+// Выносим функцию создания начального состояния наружу
+const createInitialState = (gameConfig: GameConfig): GameState => {
+  const allTetrominos = TetrominoFactory.createMultiple(4);
   
   return {
-    type: randomType,
-    shape,
-    position: { x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 },
-    color,
+    currentTetromino: allTetrominos.shift() || null,
+    nextTetrominos: allTetrominos,
+    heldTetromino: null,
+    canHold: true,
+    board: Array(gameConfig.boardHeight)
+      .fill(null)
+      .map(() => Array(gameConfig.boardWidth).fill(null)),
+    score: 0,
+    level: 1,
+    linesCleared: 0,
+    wordsFormed: 0,
+    isGameOver: false,
+    isPaused: false,
+    gameSpeed: gameConfig.initialSpeed
   };
 };
 
-// Генерация следующих фигур
-const generateNextPieces = (): Tetromino[] => {
-  return Array.from({ length: 3 }, createRandomTetromino);
-};
+export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
+  const [gameState, setGameState] = useState<GameState>(() => createInitialState(config));
 
-const INITIAL_STATE: GameState = {
-  board: createEmptyBoard(),
-  currentPiece: null,
-  nextPieces: [],
-  heldPiece: null,
-  canHold: true,
-  score: 0,
-  level: 1,
-  lines: 0,
-  isPaused: false,
-  isGameOver: false,
-  gameSpeed: 1000,
-};
-
-export const useGameState = () => {
-  const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
-
-  const loadGameState = useCallback((savedState: GameState) => {
-    setGameState({
-      ...savedState,
-      isPaused: false, // Снимаем паузу при загрузке
-    });
-  }, []);
-  
-  // Инициализация игры
-  const initializeGame = useCallback(() => {
-    const nextPieces = generateNextPieces();
-    const currentPiece = createRandomTetromino();
-    
-    setGameState({
-      ...INITIAL_STATE,
-      currentPiece,
-      nextPieces,
-    });
-  }, []);
-
-  // Пауза игры
-  const togglePause = useCallback(() => {
-    setGameState(prev => ({
-      ...prev,
-      isPaused: !prev.isPaused,
-    }));
-  }, []);
-
-  // Обновление счета
-  const updateScore = useCallback((clearedLines: number) => {
+  // Функция для получения новой фигуры
+  const spawnNewTetromino = useCallback(() => {
     setGameState(prev => {
-      const newLines = prev.lines + clearedLines;
-      const newLevel = Math.floor(newLines / 10) + 1;
-      const points = [0, 40, 100, 300, 1200]; // Очки за 0,1,2,3,4 линии
-      const lineScore = points[clearedLines] * newLevel;
+      const newNextTetrominos = [...prev.nextTetrominos];
+      const newCurrentTetromino = newNextTetrominos.shift() || null;
       
+      // Если следующих фигур осталось меньше 3, добавляем новые
+      if (newNextTetrominos.length < 3) {
+        const additionalTetrominos = TetrominoFactory.createMultiple(3 - newNextTetrominos.length);
+        newNextTetrominos.push(...additionalTetrominos);
+      }
+
       return {
         ...prev,
-        score: prev.score + lineScore,
-        lines: newLines,
-        level: newLevel,
-        gameSpeed: Math.max(100, 1000 - (newLevel - 1) * 100),
+        currentTetromino: newCurrentTetromino,
+        nextTetrominos: newNextTetrominos
       };
     });
   }, []);
 
-  // === ХУКИ ДЛЯ ОТЛАДКИ ===
-
-  // Установка конкретного количества очков
-  const setScore = useCallback((newScore: number) => {
+  // Обработчик завершения игры
+  const handleGameOver = useCallback(() => {
     setGameState(prev => ({
       ...prev,
-      score: Math.max(0, newScore),
+      isGameOver: true
     }));
   }, []);
 
-  // Добавление очков
-  const addScore = useCallback((points: number) => {
+  // Интегрируем игровой цикл
+  useGameLoop({
+    gameState,
+    onTick: () => {
+      // Автоматическое падение фигуры вниз
+      setGameState(prev => ({
+        ...prev,
+        currentTetromino: prev.currentTetromino ? {
+          ...prev.currentTetromino,
+          position: {
+            ...prev.currentTetromino.position,
+            y: prev.currentTetromino.position.y + 1
+          }
+        } : null
+      }));
+    },
+  });
+
+  // Действия для изменения состояния
+  const moveTetromino = useCallback((dx: number, dy: number) => {
     setGameState(prev => ({
       ...prev,
-      score: Math.max(0, prev.score + points),
+      currentTetromino: prev.currentTetromino ? {
+        ...prev.currentTetromino,
+        position: {
+          x: prev.currentTetromino.position.x + dx,
+          y: prev.currentTetromino.position.y + dy
+        }
+      } : null
     }));
   }, []);
 
-  // Установка уровня
-  const setLevel = useCallback((newLevel: number) => {
+  const rotateTetromino = useCallback(() => {
     setGameState(prev => ({
       ...prev,
-      level: Math.max(1, newLevel),
-      gameSpeed: Math.max(100, 1000 - (newLevel - 1) * 100),
+      currentTetromino: prev.currentTetromino ? 
+        TetrominoUtils.rotate(prev.currentTetromino) : null
     }));
   }, []);
 
-  // Добавление уровня
-  const addLevel = useCallback((levels: number) => {
+  const holdTetromino = useCallback(() => {
     setGameState(prev => {
-      const newLevel = Math.max(1, prev.level + levels);
+      if (!prev.canHold || !prev.currentTetromino) return prev;
+
+      const newHeldTetromino = prev.currentTetromino;
+      const newCurrentTetromino = prev.nextTetrominos[0] || null;
+      const newNextTetrominos = prev.nextTetrominos.slice(1);
+
+      // Добавляем новую фигуру в очередь если нужно
+      const finalNextTetrominos = newNextTetrominos.length >= 3 
+        ? newNextTetrominos 
+        : [...newNextTetrominos, ...TetrominoFactory.createMultiple(3 - newNextTetrominos.length)];
+
+      if (newCurrentTetromino) {
+        return {
+          ...prev,
+          currentTetromino: newCurrentTetromino,
+          nextTetrominos: finalNextTetrominos,
+          heldTetromino: newHeldTetromino,
+          canHold: false
+        };
+      }
+
+      return prev;
+    });
+  }, []);
+
+  const hardDrop = useCallback(() => {
+    setGameState(prev => {
       return {
         ...prev,
-        level: newLevel,
-        gameSpeed: Math.max(100, 1000 - (newLevel - 1) * 100),
+        currentTetromino: prev.currentTetromino ? {
+          ...prev.currentTetromino,
+          position: {
+            ...prev.currentTetromino.position,
+            y: prev.currentTetromino.position.y + 10 // Быстрое падение
+          }
+        } : null
       };
     });
   }, []);
 
-  // Установка количества линий
-  const setLines = useCallback((newLines: number) => {
-    setGameState(prev => ({
-      ...prev,
-      lines: Math.max(0, newLines),
-    }));
+  const pause = useCallback(() => {
+    setGameState(prev => ({ ...prev, isPaused: true }));
   }, []);
 
-  // Добавление линий
+  const resume = useCallback(() => {
+    setGameState(prev => ({ ...prev, isPaused: false }));
+  }, []);
+
+  const restart = useCallback(() => {
+    setGameState(createInitialState(config));
+  }, [config]);
+
+  const addScore = useCallback((points: number) => {
+    setGameState(prev => ({ ...prev, score: prev.score + points }));
+  }, []);
+
   const addLines = useCallback((lines: number) => {
     setGameState(prev => ({
       ...prev,
-      lines: Math.max(0, prev.lines + lines),
+      linesCleared: prev.linesCleared + lines
     }));
   }, []);
 
-  // Очистка поля
-  const clearBoard = useCallback(() => {
+  const addWord = useCallback(() => {
     setGameState(prev => ({
       ...prev,
-      board: createEmptyBoard(),
+      wordsFormed: prev.wordsFormed + 1
     }));
   }, []);
 
-  // Установка конкретной фигуры
-  const setCurrentPiece = useCallback((pieceType: TetrominoType) => {
-    const { shape, color } = TETROMINOES[pieceType];
-    const newPiece: Tetromino = {
-      type: pieceType,
-      shape,
-      position: { x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 },
-      color,
-    };
-
+  const levelUp = useCallback(() => {
     setGameState(prev => ({
       ...prev,
-      currentPiece: newPiece,
+      level: prev.level + 1,
+      gameSpeed: Math.max(100, prev.gameSpeed - config.speedIncreasePerLevel)
     }));
+  }, [config.speedIncreasePerLevel]);
+
+  const setCurrentTetromino = useCallback((tetromino: Tetromino | null) => {
+    setGameState(prev => ({ ...prev, currentTetromino: tetromino }));
   }, []);
 
-  // Сброс возможности хода в карман
-  const resetHold = useCallback(() => {
-    setGameState(prev => ({
-      ...prev,
-      canHold: true,
-    }));
+  const setNextTetrominos = useCallback((tetrominos: Tetromino[]) => {
+    setGameState(prev => ({ ...prev, nextTetrominos: tetrominos }));
   }, []);
 
-  // Пропуск на следующий уровень (добавляет 10 линий)
-  const skipToNextLevel = useCallback(() => {
-    setGameState(prev => {
-      const currentLevelLines = prev.lines % 10;
-      const linesToAdd = 10 - currentLevelLines;
-      const newLines = prev.lines + linesToAdd;
-      const newLevel = Math.floor(newLines / 10) + 1;
-      
-      return {
-        ...prev,
-        lines: newLines,
-        level: newLevel,
-        gameSpeed: Math.max(100, 1000 - (newLevel - 1) * 100),
-      };
-    });
+  const setBoard = useCallback((board: GameState['board']) => {
+    setGameState(prev => ({ ...prev, board }));
   }, []);
 
-  // Сброс игры к начальным настройкам (без перезапуска)
-  const resetStats = useCallback(() => {
-    setGameState(prev => ({
-      ...prev,
-      score: 0,
-      level: 1,
-      lines: 0,
-      gameSpeed: 1000,
-    }));
+  const setGameOver = useCallback((isGameOver: boolean) => {
+    setGameState(prev => ({ ...prev, isGameOver }));
   }, []);
 
-  // Сохранение фигуры в карман
-  const holdPiece = useCallback(() => {
-    if (!gameState.canHold || !gameState.currentPiece) return;
-
-    setGameState(prev => {
-      const newHeldPiece = prev.currentPiece;
-      const newCurrentPiece = prev.heldPiece || prev.nextPieces[0];
-      const newNextPieces = prev.heldPiece 
-        ? prev.nextPieces.slice(1)
-        : [...prev.nextPieces.slice(1), createRandomTetromino()];
-
-      return {
-        ...prev,
-        heldPiece: newHeldPiece,
-        currentPiece: newCurrentPiece,
-        nextPieces: newNextPieces,
-        canHold: false,
-      };
-    });
-  }, [gameState.canHold, gameState.currentPiece]);
-
-  // Перемещение фигуры
-  const movePiece = useCallback((direction: 'left' | 'right' | 'down') => {
-    if (gameState.isPaused || !gameState.currentPiece) return;
-
-    setGameState(prev => {
-      const { currentPiece } = prev;
-      if (!currentPiece) return prev;
-
-      const newPosition = { ...currentPiece.position };
-      
-      switch (direction) {
-        case 'left':
-          newPosition.x -= 1;
-          break;
-        case 'right':
-          newPosition.x += 1;
-          break;
-        case 'down':
-          newPosition.y += 1;
-          break;
-      }
-
-      // TODO: Добавить проверку коллизий позже
-      return {
-        ...prev,
-        currentPiece: {
-          ...currentPiece,
-          position: newPosition,
-        },
-      };
-    });
-  }, [gameState.isPaused, gameState.currentPiece]);
-
-  // Вращение фигуры
-  const rotatePiece = useCallback(() => {
-    if (gameState.isPaused || !gameState.currentPiece) return;
-
-    setGameState(prev => {
-      const { currentPiece } = prev;
-      if (!currentPiece) return prev;
-
-      // Поворот матрицы на 90 градусов
-      const rotatedShape = currentPiece.shape[0].map((_, index) =>
-        currentPiece.shape.map(row => row[index]).reverse()
-      );
-
-      // TODO: Добавить проверку коллизий после поворота
-      return {
-        ...prev,
-        currentPiece: {
-          ...currentPiece,
-          shape: rotatedShape,
-        },
-      };
-    });
-  }, [gameState.isPaused, gameState.currentPiece]);
+  const setCanHold = useCallback((canHold: boolean) => {
+    setGameState(prev => ({ ...prev, canHold }));
+  }, []);
 
   return {
     gameState,
-    initializeGame,
-    togglePause,
-    updateScore,
-    holdPiece,
-    movePiece,
-    rotatePiece,
-    loadGameState,
-    
-    // Хуки для отладки
-    setScore,
-    addScore,
-    setLevel,
-    addLevel,
-    setLines,
-    addLines,
-    clearBoard,
-    setCurrentPiece,
-    resetHold,
-    skipToNextLevel,
-    resetStats,
+    actions: {
+      moveTetromino,
+      rotateTetromino,
+      holdTetromino,
+      hardDrop,
+      pause,
+      resume,
+      restart,
+      addScore,
+      addLines,
+      addWord,
+      levelUp,
+      setCurrentTetromino,
+      setNextTetrominos,
+      setBoard,
+      setGameOver,
+      setCanHold,
+      spawnNew: spawnNewTetromino,
+    }
   };
 };
-
-// import { useState, useCallback } from 'react';
-// import { GameState, Tetromino, TetrominoType, TETROMINOES, GameBoard } from '../types';
-
-// const ROWS = 20;
-// const COLS = 10;
-
-// // Создание пустого поля
-// const createEmptyBoard = (): GameBoard => 
-//   Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-
-// // Создание случайной фигуры
-// const createRandomTetromino = (): Tetromino => {
-//   const types: TetrominoType[] = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
-//   const randomType = types[Math.floor(Math.random() * types.length)];
-//   const { shape, color } = TETROMINOES[randomType];
-  
-//   return {
-//     type: randomType,
-//     shape,
-//     position: { x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 },
-//     color,
-//   };
-// };
-
-// // Генерация следующих фигур
-// const generateNextPieces = (): Tetromino[] => {
-//   return Array.from({ length: 3 }, createRandomTetromino);
-// };
-
-// const INITIAL_STATE: GameState = {
-//   board: createEmptyBoard(),
-//   currentPiece: null,
-//   nextPieces: [],
-//   heldPiece: null,
-//   canHold: true,
-//   score: 0,
-//   level: 1,
-//   lines: 0,
-//   isPaused: false,
-//   isGameOver: false,
-//   gameSpeed: 1000,
-// };
-
-// export const useGameState = () => {
-//   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
-
-//   // Инициализация игры
-//   const initializeGame = useCallback(() => {
-//     const nextPieces = generateNextPieces();
-//     const currentPiece = createRandomTetromino();
-    
-//     setGameState({
-//       ...INITIAL_STATE,
-//       currentPiece,
-//       nextPieces,
-//     });
-//   }, []);
-
-//   // Пауза игры
-//   const togglePause = useCallback(() => {
-//     setGameState(prev => ({
-//       ...prev,
-//       isPaused: !prev.isPaused,
-//     }));
-//   }, []);
-
-//   // Обновление счета
-//   const updateScore = useCallback((clearedLines: number) => {
-//     setGameState(prev => {
-//       const newLines = prev.lines + clearedLines;
-//       const newLevel = Math.floor(newLines / 10) + 1;
-//       const points = [0, 40, 100, 300, 1200]; // Очки за 0,1,2,3,4 линии
-//       const lineScore = points[clearedLines] * newLevel;
-      
-//       return {
-//         ...prev,
-//         score: prev.score + lineScore,
-//         lines: newLines,
-//         level: newLevel,
-//         gameSpeed: Math.max(100, 1000 - (newLevel - 1) * 100),
-//       };
-//     });
-//   }, []);
-
-//   // Сохранение фигуры в карман
-//   const holdPiece = useCallback(() => {
-//     if (!gameState.canHold || !gameState.currentPiece) return;
-
-//     setGameState(prev => {
-//       const newHeldPiece = prev.currentPiece;
-//       const newCurrentPiece = prev.heldPiece || prev.nextPieces[0];
-//       const newNextPieces = prev.heldPiece 
-//         ? prev.nextPieces.slice(1)
-//         : [...prev.nextPieces.slice(1), createRandomTetromino()];
-
-//       return {
-//         ...prev,
-//         heldPiece: newHeldPiece,
-//         currentPiece: newCurrentPiece,
-//         nextPieces: newNextPieces,
-//         canHold: false,
-//       };
-//     });
-//   }, [gameState.canHold, gameState.currentPiece]);
-
-//   // Перемещение фигуры
-//   const movePiece = useCallback((direction: 'left' | 'right' | 'down') => {
-//     if (gameState.isPaused || !gameState.currentPiece) return;
-
-//     setGameState(prev => {
-//       const { currentPiece } = prev;
-//       if (!currentPiece) return prev;
-
-//       const newPosition = { ...currentPiece.position };
-      
-//       switch (direction) {
-//         case 'left':
-//           newPosition.x -= 1;
-//           break;
-//         case 'right':
-//           newPosition.x += 1;
-//           break;
-//         case 'down':
-//           newPosition.y += 1;
-//           break;
-//       }
-
-//       // TODO: Добавить проверку коллизий позже
-//       return {
-//         ...prev,
-//         currentPiece: {
-//           ...currentPiece,
-//           position: newPosition,
-//         },
-//       };
-//     });
-//   }, [gameState.isPaused, gameState.currentPiece]);
-
-//   // Вращение фигуры
-//   const rotatePiece = useCallback(() => {
-//     if (gameState.isPaused || !gameState.currentPiece) return;
-
-//     setGameState(prev => {
-//       const { currentPiece } = prev;
-//       if (!currentPiece) return prev;
-
-//       // Поворот матрицы на 90 градусов
-//       const rotatedShape = currentPiece.shape[0].map((_, index) =>
-//         currentPiece.shape.map(row => row[index]).reverse()
-//       );
-
-//       // TODO: Добавить проверку коллизий после поворота
-//       return {
-//         ...prev,
-//         currentPiece: {
-//           ...currentPiece,
-//           shape: rotatedShape,
-//         },
-//       };
-//     });
-//   }, [gameState.isPaused, gameState.currentPiece]);
-
-//   return {
-//     gameState,
-//     initializeGame,
-//     togglePause,
-//     updateScore,
-//     holdPiece,
-//     movePiece,
-//     rotatePiece,
-//   };
-// };
