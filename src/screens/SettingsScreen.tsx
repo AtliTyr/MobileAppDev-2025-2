@@ -1,10 +1,63 @@
-import React from 'react';
+// SettingsScreen.tsx
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import Slider from '@react-native-community/slider';
 import PrimaryButton from '../components/PrimaryButton';
+import { useAudio } from '../context/AudioContext';
+import * as Brightness from 'expo-brightness';
 
+export default function SettingsScreen() {
+  const { 
+    audioSettings, 
+    updateSettings, 
+    resetSettings,
+    getSettingsForDisplay 
+  } = useAudio();
+  
+  const [displaySettings, setDisplaySettings] = useState(() => getSettingsForDisplay());
 
-export default function SettingsScreen({}) {
+  const [brightness, setBrightness] = useState(1);
+
+  useEffect(() => {
+    (async () => {
+      const systemBrightness = await Brightness.getBrightnessAsync();
+      setBrightness(systemBrightness);
+    })();
+  }, []);
+
+  const handleBrightnessChange = async (value: number) => {
+    setBrightness(value);
+    await Brightness.setBrightnessAsync(value);
+  };
+
+  useEffect(() => {
+    setDisplaySettings(getSettingsForDisplay());
+  }, [audioSettings, getSettingsForDisplay]);
+
+  const handleMusicToggle = (enabled: boolean) => {
+    updateSettings({ musicEnabled: enabled });
+  };
+
+  const handleMusicVolumeChange = (volume: number) => {
+    updateSettings({ musicVolume: volume });
+  };
+
+  const handleSoundsToggle = (enabled: boolean) => {
+    updateSettings({ soundsEnabled: enabled });
+  };
+
+  const handleSoundsVolumeChange = (volume: number) => {
+    updateSettings({ soundsVolume: volume });
+  };
+
+  const handleResetSettings = () => {
+    resetSettings();
+    handleBrightnessChange(0.7);
+  };
+
+  const handleBack = () => {
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>НАСТРОЙКИ</Text>
@@ -15,25 +68,29 @@ export default function SettingsScreen({}) {
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Музыка</Text>
             <Text style={styles.settingValue}>
-              Вкл (70%)
+              {displaySettings.musicEnabled ? `Вкл (${displaySettings.musicVolume}%)` : 'Выкл'}
             </Text>
           </View>
           <Switch
-            value={true}
-            onValueChange={() => {}}
+            value={audioSettings.musicEnabled}
+            onValueChange={handleMusicToggle}
           />
         </View>
         
-        {true && (
+        {audioSettings.musicEnabled && (
           <View style={styles.sliderContainer}>
             <Text style={styles.sliderLabel}>Громкость музыки</Text>
             <Slider
               style={styles.slider}
               minimumValue={0}
               maximumValue={1}
-              value={0.7}
-              onValueChange={() => {}}
+              value={audioSettings.musicVolume}
+              onValueChange={handleMusicVolumeChange}
+              minimumTrackTintColor="#1fb28a"
+              maximumTrackTintColor="#d3d3d3"
+              thumbTintColor="#1fb28a"
             />
+            <Text style={styles.sliderValue}>{displaySettings.musicVolume}%</Text>
           </View>
         )}
 
@@ -42,25 +99,29 @@ export default function SettingsScreen({}) {
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Звуки</Text>
             <Text style={styles.settingValue}>
-              Вкл (80%)
+              {displaySettings.soundsEnabled ? `Вкл (${displaySettings.soundsVolume}%)` : 'Выкл'}
             </Text>
           </View>
           <Switch
-            value={true}
-            onValueChange={() => {}}
+            value={audioSettings.soundsEnabled}
+            onValueChange={handleSoundsToggle}
           />
         </View>
         
-        {true && (
+        {audioSettings.soundsEnabled && (
           <View style={styles.sliderContainer}>
             <Text style={styles.sliderLabel}>Громкость звуков</Text>
             <Slider
               style={styles.slider}
               minimumValue={0}
               maximumValue={1}
-              value={0.8}
-              onValueChange={() => {}}
+              value={audioSettings.soundsVolume}
+              onValueChange={handleSoundsVolumeChange}
+              minimumTrackTintColor="#1fb28a"
+              maximumTrackTintColor="#d3d3d3"
+              thumbTintColor="#1fb28a"
             />
+            <Text style={styles.sliderValue}>{displaySettings.soundsVolume}%</Text>
           </View>
         )}
 
@@ -69,25 +130,27 @@ export default function SettingsScreen({}) {
           <Text style={styles.sliderLabel}>Яркость экрана</Text>
           <Slider
             style={styles.slider}
-            minimumValue={0.1}
+            minimumValue={0.01}
             maximumValue={1}
-            value={0.8}
-            onValueChange={() => {}}
+            value={brightness}
+            onValueChange={handleBrightnessChange}
+            minimumTrackTintColor="#1fb28a"
+            maximumTrackTintColor="#d3d3d3"
+            thumbTintColor="#1fb28a"
           />
-          <Text style={styles.sliderValue}>80%</Text>
+          <Text style={styles.sliderValue}>{Math.round(brightness * 100)}%</Text>
         </View>
       </View>
 
       <View style={styles.buttonsContainer}>
         <PrimaryButton
           title="Сбросить настройки"
-          onPress={() => {
-          }}
+          onPress={handleResetSettings}
         />
         
         <PrimaryButton
           title="Назад"
-          onPress={() => {}}
+          onPress={handleBack}
         />
       </View>
     </View>
