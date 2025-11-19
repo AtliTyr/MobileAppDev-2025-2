@@ -83,6 +83,11 @@ export default function HomeScreen() {
         onPress={() => {}}
       />
 
+      <PrimaryButton
+        title="Словарь"
+        onPress={() => {}}
+      />
+
       <Text style={styles.footer}>Разработка: Лабораторная №3 — Управление ресурсами и использование хуков</Text>
     </View>
   );
