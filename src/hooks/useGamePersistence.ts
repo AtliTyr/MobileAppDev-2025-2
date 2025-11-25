@@ -1,175 +1,464 @@
-// hooks/useGamePersistence.ts
+/**
+ * 💾 useGamePersistence.ts - Система сохранения и загрузки игры
+ * 
+ * ОСНОВНОЙ ФУНКЦИОНАЛ:
+ * ✅ Сохранение текущего состояния игры в AsyncStorage
+ * ✅ Загрузка сохранённой игры
+ * ✅ Проверка наличия сохранения
+ * ✅ Удаление сохранённой игры
+ * ✅ Версионирование данных
+ * ✅ Обработка ошибок при работе с хранилищем
+ * 
+ * РАБОТАЕТ С:
+ * - AsyncStorage: нативное хранилище данных на устройстве
+ * - GameState: состояние игры (фигуры, доска, очки)
+ * - GameConfig: конфигурация игры (размер доски, скорость)
+ * 
+ * ИСПОЛЬЗУЕТ:
+ * - Ключи в AsyncStorage для разделения данных
+ * - Версионирование для совместимости при обновлениях
+ * - JSON сериализацию для сохранения сложных объектов
+ */
 
 import { useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GameState, GameConfig, DEFAULT_GAME_CONFIG } from '../types/game';
 import { Tetromino } from '../types/tetromino';
 
-// Ключи для AsyncStorage
+// ========================================
+// 📦 КОНСТАНТЫ И КЛЮЧИ
+// ========================================
+
+/**
+ * STORAGE_KEYS - ключи для AsyncStorage
+ * 
+ * AsyncStorage работает как ключ-значение хранилище (как localStorage в браузере)
+ * Нам нужны уникальные ключи для разных типов данных
+ * 
+ * Используются для:
+ * - Сохранения разных данных отдельно друг от друга
+ * - Быстрого поиска нужной информации
+ * - Предотвращения конфликтов с другими приложениями
+ */
 const STORAGE_KEYS = {
-  GAME_STATE: 'tetris_game_state',
-  GAME_CONFIG: 'tetris_game_config',
-  HIGH_SCORE: 'tetris_high_score',
-  STATS: 'tetris_player_stats',
+  GAME_STATE: 'tetris_game_state',    // Состояние текущей игры
+  GAME_CONFIG: 'tetris_game_config',  // Конфигурация игры
+  HIGH_SCORE: 'tetris_high_score',    // Лучший результат
+  STATS: 'tetris_player_stats',       // Статистика игрока
 };
 
-// Интерфейс для сохранённых данных
+// ========================================
+// 📊 ИНТЕРФЕЙСЫ
+// ========================================
+
+/**
+ * SavedGameState - интерфейс для сохранённых данных
+ * 
+ * Содержит всю информацию необходимую для восстановления игры в точности такой же,
+ * как она была в момент сохранения
+ */
 interface SavedGameState {
+  /**
+   * version - версия формата данных
+   * 
+   * ЗАЧЕМ НУЖНА:
+   * - При обновлении приложения формат данных может измениться
+   * - По версии можно определить есть ли нужно конвертировать старые данные
+   * - Например: версия 1.0 → 2.0, нужна миграция данных
+   * 
+   * @example '1.0'
+   */
   version: string;
+
+  /**
+   * timestamp - время сохранения (в миллисекундах с начала эпохи)
+   * 
+   * ЗАЧЕМ НУЖНА:
+   * - Узнать когда была сохранена игра
+   * - Можно использовать для отображения "Сохранено 30 мин назад"
+   * - Для удаления старых сохранений если хранилище переполнено
+   */
   timestamp: number;
+
+  /**
+   * gameState - состояние игры
+   * 
+   * Содержит всю информацию о текущем состоянии:
+   * - currentTetromino: текущая падающая фигура
+   * - nextTetrominos: очередь следующих фигур
+   * - board: состояние игровой доски
+   * - score: текущие очки
+   * - level: уровень сложности
+   * - И остальное из GameState
+   * 
+   * ВАЖНО:
+   * - Используем Omit чтобы исключить поля которые нельзя сохранять (функции)
+   * - Но добавляем назад currentTetromino и nextTetrominos которые нам нужны
+   */
   gameState: Omit<GameState, 'currentTetromino' | 'nextTetrominos'> & {
-    currentTetromino: Tetromino | null;
-    nextTetrominos: Tetromino[];
+    currentTetromino: Tetromino | null;  // Сохраняем текущую фигуру
+    nextTetrominos: Tetromino[];         // Сохраняем очередь фигур
   };
+
+  /**
+   * config - конфигурация игры которая была при сохранении
+   * 
+   * Нужна чтобы при загрузке восстановить ту же конфигурацию:
+   * - boardWidth: ширина доски
+   * - boardHeight: высота доски
+   * - initialSpeed: начальная скорость падения
+   */
   config: GameConfig;
 }
 
-// Интерфейс для статистики игрока
+/**
+ * PlayerStats - интерфейс для статистики игрока
+ * 
+ * Накапливает статистику за все игры
+ */
 interface PlayerStats {
-  gamesPlayed: number;
-  totalScore: number;
-  totalLines: number;
-  totalWords: number;
-  bestScore: number;
-  bestLevel: number;
+  gamesPlayed: number;    // Количество сыгранных игр
+  totalScore: number;     // Сумма всех очков
+  totalLines: number;     // Общее количество очищенных линий
+  totalWords: number;     // Общее количество найденных слов
+  bestScore: number;      // Лучший результат
+  bestLevel: number;      // Максимальный достигнутый уровень
 }
 
+// ========================================
+// 🪝 ГЛАВНЫЙ ХУК
+// ========================================
+
+/**
+ * useGamePersistence - кастомный хук для управления сохранениями
+ * 
+ * Предоставляет функции для:
+ * - Сохранения текущего состояния игры
+ * - Загрузки сохранённой игры
+ * - Проверки наличия сохранения
+ * - Удаления сохранения
+ * 
+ * @returns объект с методами для работы с сохранениями
+ */
 export const useGamePersistence = () => {
-  // Сохранение текущего состояния игры
+  // ========================================
+  // 💾 СОХРАНЕНИЕ ИГРЫ
+  // ========================================
+
+  /**
+   * saveGame - сохраняет текущее состояние игры
+   * 
+   * ПРОЦЕСС:
+   * 1. Упаковываем состояние игры в объект SavedGameState
+   * 2. Добавляем версию и временную метку
+   * 3. Преобразуем в JSON
+   * 4. Сохраняем в AsyncStorage
+   * 5. Логируем успех или ошибку
+   * 
+   * @param gameState - текущее состояние игры для сохранения
+   * 
+   * @example
+   * ```tsx
+   * const { saveGame } = useGamePersistence();
+   * 
+   * // При выходе из игры:
+   * await saveGame(gameState);
+   * ```
+   */
   const saveGame = useCallback(
-    async (gameState: GameState, config: GameConfig = DEFAULT_GAME_CONFIG): Promise<boolean> => {
+    async (gameState: GameState): Promise<void> => {
       try {
-        const saved: SavedGameState = {
-          version: '1.0',
-          timestamp: Date.now(),
-          gameState,
-          config,
+        // ========================================
+        // 1️⃣ ПОДГОТОВКА ДАННЫХ
+        // ========================================
+
+        /**
+         * Создаём объект для сохранения
+         * Включаем версию и временную метку
+         */
+        const savedState: SavedGameState = {
+          version: '1.0',                    // Версия формата данных
+          timestamp: Date.now(),             // Когда было сохранено
+          gameState,                         // Состояние игры
+          config: DEFAULT_GAME_CONFIG,       // Конфигурация
         };
 
-        await AsyncStorage.setItem(STORAGE_KEYS.GAME_STATE, JSON.stringify(saved));
-        console.log('Game saved successfully');
-        return true;
+        // ========================================
+        // 2️⃣ ПРЕОБРАЗОВАНИЕ В JSON
+        // ========================================
+
+        /**
+         * JSON.stringify преобразует объект в строку
+         * null, 2 - параметры для красивого форматирования
+         */
+        const jsonData = JSON.stringify(savedState);
+
+        // ========================================
+        // 3️⃣ СОХРАНЕНИЕ В ASYNCSTORAGE
+        // ========================================
+
+        /**
+         * setItem сохраняет данные по ключу GAME_STATE
+         * Это асинхронная операция поэтому используем await
+         */
+        await AsyncStorage.setItem(STORAGE_KEYS.GAME_STATE, jsonData);
+
+        console.log('✅ Game saved successfully');
+
       } catch (error) {
-        console.error('Error saving game:', error);
-        return false;
+        console.error('❌ Error saving game:', error);
+        throw error; // Пробрасываем ошибку дальше
       }
     },
     []
   );
 
-  // Загрузка состояния игры
-  const loadGame = useCallback(
-    async (): Promise<{ gameState: GameState; config: GameConfig } | null> => {
-      try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEYS.GAME_STATE);
-        if (!saved) {
-          console.log('No saved game found');
-          return null;
-        }
+  // ========================================
+  // 📂 ЗАГРУЗКА ИГРЫ
+  // ========================================
 
-        const data: SavedGameState = JSON.parse(saved);
-        console.log('Game loaded successfully');
-        return {
-          gameState: data.gameState,
-          config: data.config,
-        };
-      } catch (error) {
-        console.error('Error loading game:', error);
+  /**
+   * loadGame - загружает сохранённую игру
+   * 
+   * ПРОЦЕСС:
+   * 1. Получаем данные из AsyncStorage по ключу GAME_STATE
+   * 2. Парсим JSON
+   * 3. Проверяем версию совместимости
+   * 4. Возвращаем loadedData для инициализации новой игры
+   * 
+   * @returns объект с { gameState, config } или null если нет сохранения
+   * 
+   * @example
+   * ```tsx
+   * const { loadGame } = useGamePersistence();
+   * 
+   * // При загрузке игры:
+   * const loadedData = await loadGame();
+   * if (loadedData) {
+   *   navigation.navigate('Game', { savedGameData: loadedData });
+   * }
+   * ```
+   */
+  const loadGame = useCallback(async (): Promise<{
+    gameState: GameState;
+    config: GameConfig;
+  } | null> => {
+    try {
+      // ========================================
+      // 1️⃣ ПОЛУЧЕНИЕ ДАННЫХ ИЗ ХРАНИЛИЩА
+      // ========================================
+
+      /**
+       * getItem получает сохранённые данные
+       * Если данных нет, возвращает null
+       */
+      const jsonData = await AsyncStorage.getItem(STORAGE_KEYS.GAME_STATE);
+
+      if (!jsonData) {
+        console.log('ℹ️ No saved game found');
         return null;
       }
-    },
-    []
-  );
 
-  // Проверка наличия сохранённой игры
+      // ========================================
+      // 2️⃣ ПАРСИНГ JSON
+      // ========================================
+
+      /**
+       * JSON.parse преобразует строку обратно в объект
+       */
+      const savedState: SavedGameState = JSON.parse(jsonData);
+
+      // ========================================
+      // 3️⃣ ПРОВЕРКА ВЕРСИИ
+      // ========================================
+
+      /**
+       * Проверяем совместимость версии
+       * Если версия не совпадает, может потребоваться миграция
+       */
+      if (savedState.version !== '1.0') {
+        console.warn('⚠️ Saved game version mismatch');
+        // В будущем здесь может быть код миграции
+      }
+
+      console.log('✅ Game loaded successfully');
+
+      // ========================================
+      // 4️⃣ ВОЗВРАТ ДАННЫХ
+      // ========================================
+
+      /**
+       * Возвращаем объект с gameState и config
+       * Эти данные будут переданы на Game экран
+       */
+      return {
+        gameState: savedState.gameState,
+        config: savedState.config,
+      };
+
+    } catch (error) {
+      console.error('❌ Error loading game:', error);
+      return null; // Возвращаем null при ошибке
+    }
+  }, []);
+
+  // ========================================
+  // 🔍 ПРОВЕРКА НАЛИЧИЯ СОХРАНЕНИЯ
+  // ========================================
+
+  /**
+   * hasSavedGame - проверяет есть ли сохранённая игра
+   * 
+   * ЗАЧЕМ:
+   * - На HomeScreen показываем кнопку "Продолжить" только если есть сохранение
+   * - Предотвращаем показ диалога если сохранения нет
+   * 
+   * @returns true если есть сохранение, иначе false
+   * 
+   * @example
+   * ```tsx
+   * const { hasSavedGame } = useGamePersistence();
+   * 
+   * const exists = await hasSavedGame();
+   * if (exists) {
+   *   // Показываем кнопку "Продолжить"
+   * }
+   * ```
+   */
   const hasSavedGame = useCallback(async (): Promise<boolean> => {
     try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEYS.GAME_STATE);
-      return saved !== null;
+      /**
+       * getItem вернёт null если данных нет
+       * Мы просто проверяем если ли что-то
+       */
+      const exists = await AsyncStorage.getItem(STORAGE_KEYS.GAME_STATE);
+      return exists !== null;
+
     } catch (error) {
-      console.error('Error checking saved game:', error);
-      return false;
+      console.error('❌ Error checking saved game:', error);
+      return false; // При ошибке предполагаем что сохранения нет
     }
   }, []);
 
-  // Очистка сохранённой игры
-  const clearSavedGame = useCallback(async (): Promise<boolean> => {
+  // ========================================
+  // 🗑️ УДАЛЕНИЕ СОХРАНЕНИЯ
+  // ========================================
+
+  /**
+   * clearSavedGame - удаляет сохранённую игру
+   * 
+   * ИСПОЛЬЗУЕТСЯ КОГДА:
+   * - Пользователь нажимает "Новая игра" поверх существующей
+   * - Пользователь нажимает "Начать заново" в pause меню
+   * - Пользователь заканчивает игру (game over)
+   * 
+   * @example
+   * ```tsx
+   * const { clearSavedGame } = useGamePersistence();
+   * 
+   * // Удаляем сохранение перед новой игрой:
+   * await clearSavedGame();
+   * navigation.navigate('Game');
+   * ```
+   */
+  const clearSavedGame = useCallback(async (): Promise<void> => {
     try {
+      /**
+       * removeItem удаляет данные по ключу из AsyncStorage
+       */
       await AsyncStorage.removeItem(STORAGE_KEYS.GAME_STATE);
-      console.log('Saved game cleared');
-      return true;
+      console.log('✅ Saved game cleared');
+
     } catch (error) {
-      console.error('Error clearing saved game:', error);
-      return false;
+      console.error('❌ Error clearing saved game:', error);
+      throw error;
     }
   }, []);
 
-  // Сохранение лучшего счёта
-  const saveHighScore = useCallback(
-    async (score: number, level: number): Promise<boolean> => {
-      try {
-        const currentHigh = await AsyncStorage.getItem(STORAGE_KEYS.HIGH_SCORE);
-        const highScore = currentHigh ? parseInt(currentHigh) : 0;
+  // ========================================
+  // 📊 СОХРАНЕНИЕ СТАТИСТИКИ
+  // ========================================
 
-        if (score > highScore) {
-          await AsyncStorage.setItem(STORAGE_KEYS.HIGH_SCORE, score.toString());
-          console.log('New high score saved:', score);
+  /**
+   * updateStats - обновляет статистику игрока после игры
+   * 
+   * ЛОГИКА:
+   * 1. Загружаем текущую статистику
+   * 2. Обновляем значения на основе результатов игры
+   * 3. Сохраняем обновленную статистику
+   * 
+   * @param score - количество очков за эту игру
+   * @param level - достигнутый уровень
+   * @param lines - количество очищенных линий
+   * @param words - количество найденных слов
+   */
+  const updateStats = useCallback(
+    async (score: number, level: number, lines: number, words: number): Promise<void> => {
+      try {
+        // ========================================
+        // 1️⃣ ЗАГРУЗКА ТЕКУЩЕЙ СТАТИСТИКИ
+        // ========================================
+
+        const statsJson = await AsyncStorage.getItem(STORAGE_KEYS.STATS);
+        const currentStats: PlayerStats = statsJson
+          ? JSON.parse(statsJson)
+          : {
+              gamesPlayed: 0,
+              totalScore: 0,
+              totalLines: 0,
+              totalWords: 0,
+              bestScore: 0,
+              bestLevel: 0,
+            };
+
+        // ========================================
+        // 2️⃣ ОБНОВЛЕНИЕ ЗНАЧЕНИЙ
+        // ========================================
+
+        currentStats.gamesPlayed += 1;        // Увеличиваем количество сыгранных игр
+        currentStats.totalScore += score;     // Суммируем очки
+        currentStats.totalLines += lines;     // Суммируем линии
+        currentStats.totalWords += words;     // Суммируем слова
+
+        // Обновляем рекорды если текущий результат лучше
+        if (score > currentStats.bestScore) {
+          currentStats.bestScore = score;
+        }
+        if (level > currentStats.bestLevel) {
+          currentStats.bestLevel = level;
         }
 
-        return true;
+        // ========================================
+        // 3️⃣ СОХРАНЕНИЕ ОБНОВЛЕННОЙ СТАТИСТИКИ
+        // ========================================
+
+        await AsyncStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(currentStats));
+        console.log('✅ Stats updated');
+
       } catch (error) {
-        console.error('Error saving high score:', error);
-        return false;
+        console.error('❌ Error updating stats:', error);
       }
     },
     []
   );
 
-  // Получение лучшего счёта
-  const getHighScore = useCallback(async (): Promise<number> => {
-    try {
-      const score = await AsyncStorage.getItem(STORAGE_KEYS.HIGH_SCORE);
-      return score ? parseInt(score) : 0;
-    } catch (error) {
-      console.error('Error getting high score:', error);
-      return 0;
-    }
-  }, []);
+  // ========================================
+  // 📤 ВОЗВРАЩАЕМОЕ ЗНАЧЕНИЕ
+  // ========================================
 
-  // Сохранение статистики
-  const saveStats = useCallback(
-    async (stats: PlayerStats): Promise<boolean> => {
-      try {
-        await AsyncStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(stats));
-        console.log('Stats saved successfully');
-        return true;
-      } catch (error) {
-        console.error('Error saving stats:', error);
-        return false;
-      }
-    },
-    []
-  );
-
-  // Получение статистики
-  const getStats = useCallback(async (): Promise<PlayerStats | null> => {
-    try {
-      const stats = await AsyncStorage.getItem(STORAGE_KEYS.STATS);
-      return stats ? JSON.parse(stats) : null;
-    } catch (error) {
-      console.error('Error getting stats:', error);
-      return null;
-    }
-  }, []);
-
+  /**
+   * Возвращаем объект со всеми методами для работы с сохранениями
+   * 
+   * Эти функции используются в:
+   * - GameScreen: для сохранения при выходе
+   * - HomeScreen: для загрузки и проверки сохранений
+   * - Других компонентах: для работы с игровыми данными
+   */
   return {
-    saveGame,
-    loadGame,
-    hasSavedGame,
-    clearSavedGame,
-    saveHighScore,
-    getHighScore,
-    saveStats,
-    getStats,
+    saveGame,           // Сохранить игру
+    loadGame,           // Загрузить игру
+    hasSavedGame,       // Проверить есть ли сохранение
+    clearSavedGame,     // Удалить сохранение
+    updateStats,        // Обновить статистику
   };
 };

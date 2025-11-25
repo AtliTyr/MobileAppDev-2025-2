@@ -1,4 +1,27 @@
-// src/screens/GameScreen.tsx
+/**
+ * 🎮 GameScreen.tsx - Главный экран игры
+ * 
+ * ОСНОВНОЙ ФУНКЦИОНАЛ:
+ * ✅ Отображение игровой доски и фигур
+ * ✅ Управление игровым состоянием (play/pause/reset)
+ * ✅ Обработка свайпов для управления фигурами
+ * ✅ Таймер обратного отсчёта (3 сек) при загрузке/продолжении
+ * ✅ БЛОКИРОВКА УПРАВЛЕНИЯ во время таймера
+ * ✅ Показатели статистики (линии, уровень, очки)
+ * ✅ Система сохранений и загрузки
+ * ✅ Фоновая музыка и звуковые эффекты
+ * ✅ Меню паузы и выхода
+ * ✅ Debug панель для тестирования
+ * 
+ * НАВИГАЦИЯ:
+ * - swipe back: открывает меню паузы
+ * - Home: при выходе с сохранением
+ * 
+ * ЗВУК:
+ * - Запускается музыка при старте игры
+ * - Звуки для каждого действия (move, rotate, drop и т.д.)
+ */
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, StyleSheet, StatusBar, TouchableOpacity, Text, Modal, ImageBackground } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -14,32 +37,98 @@ import { RootStackParamList } from '../../App';
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export default function GameScreen({ navigation, route }: Props) {
+  // ========================================
+  // 🔧 ИНИЦИАЛИЗАЦИЯ
+  // ========================================
+
+  /**
+   * Получаем сохранённые данные если есть
+   * Используются для восстановления игры в том же состоянии
+   */
   const savedGameData = route.params?.savedGameData;
+
+  /**
+   * Инициализируем игровое состояние
+   * Если есть сохранение - загружаем его, иначе - новая игра
+   */
   const { gameState, actions } = useGameState(
     savedGameData?.config,
     savedGameData?.gameState
   );
+
   const { saveGame, clearSavedGame } = useGamePersistence();
   const { playSound, playBackgroundMusic, stopBackgroundMusic } = useAudioManager();
-  
+
+  // ========================================
+  // 📦 СОСТОЯНИЕ КОМПОНЕНТА
+  // ========================================
+
   const [showDebug, setShowDebug] = useState(false);
   const [showPauseMenu, setShowPauseMenu] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [countdownTime, setCountdownTime] = useState<number | null>(null);
   const [isControlsDisabled, setIsControlsDisabled] = useState(false);
+
+  // ========================================
+  // 📍 REF ПЕРЕМЕННЫЕ (не перерендеривают)
+  // ========================================
+
+  /**
+   * countdownIntervalRef - ссылка на interval таймера
+   * 
+   * ЗАЧЕМ НУЖНА:
+   * - Чтобы остановить таймер при размонтировании
+   * - Чтобы не создавать множество интервалов если startCountdown вызывается много раз
+   */
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  /**
+   * backgroundMusicStartedRef - флаг что музыка была запущена
+   * 
+   * ЗАЧЕМ НУЖНА:
+   * - Предотвращает множественный запуск музыки
+   * - playBackgroundMusic может быть вызвана много раз
+   * - Этот флаг гарантирует что музыка запустится только один раз
+   */
   const backgroundMusicStartedRef = useRef(false);
 
-  // Функция для запуска таймера обратного отсчёта
+  /**
+   * stateRef - ссылка на текущее состояние управления
+   * 
+   * ЗАЧЕМ НУЖНА:
+   * - useTouchGameControls нужно знать актуальное значение isControlsDisabled и isPaused
+   * - Если использовать напрямую состояние, обработчики работают с "замороженным" состоянием
+   * - stateRef синхронизируется с текущим состоянием в useEffect
+   */
+  const stateRef = useRef({ isControlsDisabled, isPaused: gameState.isPaused });
+
+  // ========================================
+  // ⏱️ ТАЙМЕР ОБРАТНОГО ОТСЧЁТА
+  // ========================================
+
+  /**
+   * startCountdown - запускает таймер обратного отсчёта
+   * 
+   * ПРОЦЕСС:
+   * 1. Блокируем управление (isControlsDisabled = true)
+   * 2. Показываем оверлей с числом
+   * 3. Каждую секунду уменьшаем число на 1
+   * 4. При достижении 0:
+   *    - Разблокируем управление
+   *    - Скрываем оверлей
+   *    - Возобновляем игру
+   *    - Запускаем фоновую музыку
+   * 
+   * ⭐ КРИТИЧНО: таймер ДОЛЖЕН остановить блокировку управления!
+   */
   const startCountdown = useCallback((duration: number = 3) => {
     console.log(`⏱️ Таймер начат на ${duration} сек, isControlsDisabled = true`);
-    
+
     setCountdownTime(duration);
     setIsControlsDisabled(true);
 
     let remaining = duration;
-    
-    // Очищаем старый таймер если он есть
+
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       console.log('🗑️ Старый таймер очищен');
@@ -57,20 +146,30 @@ export default function GameScreen({ navigation, route }: Props) {
         }
         console.log('✅ Таймер закончился, isControlsDisabled = false');
         setCountdownTime(null);
-        setIsControlsDisabled(false); // ГЛАВНОЕ - это отключает блокировку
+        setIsControlsDisabled(false);
         actions.resume();
-        
-        // Запускаем фоновую музыку при старте игры
-        if (!backgroundMusicStartedRef.current) {
-          console.log('🎵 Запускаем фоновую музыку');
-          playBackgroundMusic();
-          backgroundMusicStartedRef.current = true;
-        }
+
+        setTimeout(() => {
+          if (!backgroundMusicStartedRef.current) {
+            console.log('🎵 Запускаем фоновую музыку');
+            playBackgroundMusic();
+            backgroundMusicStartedRef.current = true;
+          }
+        }, 100);
       }
     }, 1000);
   }, [actions, playBackgroundMusic]);
 
-  // Очистка таймера при размонтировании
+  // ========================================
+  // 🧹 CLEANUP ПРИ РАЗМОНТИРОВАНИИ
+  // ========================================
+
+  /**
+   * Очищаем ресурсы когда компонент размонтируется
+   * - Останавливаем таймер
+   * - Останавливаем музыку
+   * - Разблокируем управление
+   */
   useEffect(() => {
     return () => {
       console.log('🧹 GameScreen размонтируется, очищаем таймер');
@@ -78,12 +177,31 @@ export default function GameScreen({ navigation, route }: Props) {
         clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
       }
-      setIsControlsDisabled(false); // Убедимся, что управление включено
+      setIsControlsDisabled(false);
       stopBackgroundMusic();
     };
   }, [stopBackgroundMusic]);
 
-  // Swipe back жесты открывают меню паузы
+  // ========================================
+  // 🔄 ОБНОВЛЕНИЕ STATE REF
+  // ========================================
+
+  /**
+   * Синхронизируем stateRef с текущим состоянием
+   * Нужно чтобы обработчики свайпов имели актуальные значения
+   */
+  useEffect(() => {
+    stateRef.current = { isControlsDisabled, isPaused: gameState.isPaused };
+  }, [isControlsDisabled, gameState.isPaused]);
+
+  // ========================================
+  // 🚫 БЛОКИРОВКА SWIPE BACK
+  // ========================================
+
+  /**
+   * Слушаем попытки навигации (свайп назад)
+   * Если это GO_BACK - открываем меню паузы вместо выхода
+   */
   React.useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       if (e.data.action.type === 'GO_BACK') {
@@ -91,39 +209,48 @@ export default function GameScreen({ navigation, route }: Props) {
         handlePause();
       }
     });
-
     return unsubscribe;
   }, [navigation]);
 
-  // Автопауза с таймером при загрузке
+  // ========================================
+  // 📱 ИНИЦИАЛИЗАЦИЯ ЭКРАНА
+  // ========================================
+
+  /**
+   * При загрузке GameScreen:
+   * - Ставим игру на паузу
+   * - Запускаем таймер обратного отсчёта
+   * - Сбрасываем флаг музыки если это новая игра (не сохранение)
+   */
   React.useEffect(() => {
     console.log('📱 GameScreen загружен, ставим паузу и запускаем таймер');
     actions.pause();
     startCountdown(3);
-    
-    // Очищаем флаг музыки только если это новая игра
+
     if (!savedGameData) {
       backgroundMusicStartedRef.current = false;
     }
-  }, []); // Зависимости пустые - это правильно, чтобы запустилось только один раз
+  }, []);
 
-  // Обработчики для свайпов с ЗВУКАМИ
+  // ========================================
+  // 👆 ОБРАБОТКА СВАЙПОВ
+  // ========================================
+
+  /**
+   * touchControls из useTouchGameControls
+   * Преобразует сырые свайпы в игровые действия
+   */
   const touchControls = useTouchGameControls({
     onMoveLeft: () => {
       const state = stateRef.current;
-      console.log('LEFT swipe, state:', state);
       if (!state.isControlsDisabled && !state.isPaused) {
-        console.log('✅ Moving left');
         playSound('move');
         actions.moveTetromino(-1, 0);
-      } else {
-        console.log('❌ Controls blocked, isControlsDisabled:', state.isControlsDisabled, 'isPaused:', state.isPaused);
       }
     },
     onMoveRight: () => {
       const state = stateRef.current;
       if (!state.isControlsDisabled && !state.isPaused) {
-        console.log('✅ Moving right');
         playSound('move');
         actions.moveTetromino(1, 0);
       }
@@ -131,7 +258,6 @@ export default function GameScreen({ navigation, route }: Props) {
     onRotate: () => {
       const state = stateRef.current;
       if (!state.isControlsDisabled && !state.isPaused) {
-        console.log('✅ Rotating');
         playSound('rotate');
         actions.rotateTetromino();
       }
@@ -139,7 +265,6 @@ export default function GameScreen({ navigation, route }: Props) {
     onHardDrop: () => {
       const state = stateRef.current;
       if (!state.isControlsDisabled && !state.isPaused) {
-        console.log('✅ Hard drop');
         playSound('hard_drop');
         actions.hardDrop();
       }
@@ -147,20 +272,19 @@ export default function GameScreen({ navigation, route }: Props) {
     onSoftDrop: (speed: number) => {
       const state = stateRef.current;
       if (!state.isControlsDisabled && !state.isPaused) {
-        console.log('✅ Soft drop');
         playSound('move');
         actions.moveTetromino(0, 1);
       }
     },
   });
 
+  // ========================================
+  // 🎮 ОБРАБОТЧИКИ ДЕЙСТВИЙ
+  // ========================================
 
-  const stateRef = useRef({ isControlsDisabled, isPaused: gameState.isPaused });
-
-  useEffect(() => {
-    stateRef.current = { isControlsDisabled, isPaused: gameState.isPaused };
-  }, [isControlsDisabled, gameState.isPaused]);
-
+  /**
+   * handlePause - переключение между паузой и игрой
+   */
   const handlePause = () => {
     if (gameState.isPaused && showPauseMenu) {
       setShowPauseMenu(false);
@@ -173,6 +297,9 @@ export default function GameScreen({ navigation, route }: Props) {
     }
   };
 
+  /**
+   * handleHold - удержание текущей фигуры
+   */
   const handleHold = () => {
     if (!isControlsDisabled && !gameState.isPaused) {
       playSound('hold');
@@ -180,21 +307,29 @@ export default function GameScreen({ navigation, route }: Props) {
     }
   };
 
+  /**
+   * handleRestart - перезагрузка игры
+   */
   const handleRestart = async () => {
     playSound('game_over');
     actions.restart();
     await clearSavedGame();
     setShowPauseMenu(false);
     backgroundMusicStartedRef.current = false;
-
     actions.pause();
     startCountdown(3);
   };
 
+  /**
+   * handleExitRequest - запрос выхода (показать диалог сохранения)
+   */
   const handleExitRequest = () => {
     setShowExitConfirm(true);
   };
 
+  /**
+   * handleExitWithSave - выход с сохранением
+   */
   const handleExitWithSave = async () => {
     await saveGame(gameState);
     actions.restart();
@@ -204,6 +339,9 @@ export default function GameScreen({ navigation, route }: Props) {
     navigation.navigate('Home');
   };
 
+  /**
+   * handleExitWithoutSave - выход без сохранения
+   */
   const handleExitWithoutSave = async () => {
     await clearSavedGame();
     actions.restart();
@@ -212,6 +350,10 @@ export default function GameScreen({ navigation, route }: Props) {
     stopBackgroundMusic();
     navigation.navigate('Home');
   };
+
+  // ========================================
+  // 🐛 DEBUG ДЕЙСТВИЯ
+  // ========================================
 
   const debugActions = {
     moveLeft: () => actions.moveTetromino(-1, 0),
@@ -233,6 +375,10 @@ export default function GameScreen({ navigation, route }: Props) {
     toggleHold: () => actions.setCanHold(!gameState.canHold),
     spawnNew: () => actions.spawnNew(),
   };
+
+  // ========================================
+  // 🎨 РЕНДЕРИНГ
+  // ========================================
 
   return (
     <ImageBackground
@@ -278,11 +424,9 @@ export default function GameScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* Основные игровые компоненты */}
+        {/* Игровая площадка */}
         <View style={gameArea.container}>
-          {/* Правая панель - карман и следующие фигуры */}
           <View style={gameArea.rightPanel}>
-            {/* Карман */}
             <View style={gameArea.section}>
               <Text style={gameArea.sectionTitle}>КАРМАН</Text>
               <TouchableOpacity
@@ -298,7 +442,6 @@ export default function GameScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             </View>
 
-            {/* Следующие фигуры */}
             <View style={gameArea.section}>
               <Text style={gameArea.sectionTitle}>СЛЕДУЮЩИЕ</Text>
               <View style={gameArea.nextFigures}>
@@ -314,7 +457,6 @@ export default function GameScreen({ navigation, route }: Props) {
             </View>
           </View>
 
-          {/* Центр - игровое поле с обработчиками свайпов */}
           <View style={gameArea.center} {...touchControls.panHandlers}>
             <TetrisBoard
               board={gameState.board}
@@ -323,14 +465,14 @@ export default function GameScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {/* Оверлей таймера обратного отсчёта */}
+        {/* Оверлей таймера */}
         {countdownTime !== null && (
           <View style={countdownOverlay.container}>
             <Text style={countdownOverlay.text}>{countdownTime}</Text>
           </View>
         )}
 
-        {/* Дебаг панель */}
+        {/* Debug панель */}
         {showDebug && (
           <View style={debugPanel.container}>
             <Text style={debugPanel.title}>DEBUG PANEL</Text>
@@ -402,7 +544,7 @@ export default function GameScreen({ navigation, route }: Props) {
           </View>
         </Modal>
 
-        {/* Modal подтверждения выхода */}
+        {/* Диалог выхода */}
         <Modal
           visible={showExitConfirm}
           transparent={true}
@@ -433,6 +575,10 @@ export default function GameScreen({ navigation, route }: Props) {
     </ImageBackground>
   );
 }
+
+// ========================================
+// 🎨 СТИЛИ
+// ========================================
 
 const styles = StyleSheet.create({
   backgroundImage: {
@@ -495,11 +641,6 @@ const gameArea = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     paddingHorizontal: 5,
-  },
-  leftPanel: {
-    width: 80,
-    justifyContent: 'flex-start',
-    paddingVertical: 10,
   },
   center: {
     flex: 1,
