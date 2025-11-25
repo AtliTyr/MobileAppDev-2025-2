@@ -1,4 +1,5 @@
 // hooks/useGameState.ts
+
 import { useState, useCallback } from 'react';
 import { GameState, GameConfig, DEFAULT_GAME_CONFIG } from '../types/game';
 import { Tetromino } from '../types/tetromino';
@@ -8,7 +9,7 @@ import { useGameLoop } from './useGameLoop';
 // Выносим функцию создания начального состояния наружу
 const createInitialState = (gameConfig: GameConfig): GameState => {
   const allTetrominos = TetrominoFactory.createMultiple(4);
-  
+
   return {
     currentTetromino: allTetrominos.shift() || null,
     nextTetrominos: allTetrominos,
@@ -23,29 +24,36 @@ const createInitialState = (gameConfig: GameConfig): GameState => {
     wordsFormed: 0,
     isGameOver: false,
     isPaused: false,
-    gameSpeed: gameConfig.initialSpeed
+    gameSpeed: gameConfig.initialSpeed,
   };
 };
 
-export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
-  const [gameState, setGameState] = useState<GameState>(() => createInitialState(config));
+export const useGameState = (
+  config: GameConfig = DEFAULT_GAME_CONFIG,
+  initialGameState?: GameState
+) => {
+  const [gameState, setGameState] = useState(() =>
+    initialGameState || createInitialState(config)
+  );
 
   // Функция для получения новой фигуры
   const spawnNewTetromino = useCallback(() => {
     setGameState(prev => {
       const newNextTetrominos = [...prev.nextTetrominos];
       const newCurrentTetromino = newNextTetrominos.shift() || null;
-      
+
       // Если следующих фигур осталось меньше 3, добавляем новые
       if (newNextTetrominos.length < 3) {
-        const additionalTetrominos = TetrominoFactory.createMultiple(3 - newNextTetrominos.length);
+        const additionalTetrominos = TetrominoFactory.createMultiple(
+          3 - newNextTetrominos.length
+        );
         newNextTetrominos.push(...additionalTetrominos);
       }
 
       return {
         ...prev,
         currentTetromino: newCurrentTetromino,
-        nextTetrominos: newNextTetrominos
+        nextTetrominos: newNextTetrominos,
       };
     });
   }, []);
@@ -54,7 +62,7 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
   const handleGameOver = useCallback(() => {
     setGameState(prev => ({
       ...prev,
-      isGameOver: true
+      isGameOver: true,
     }));
   }, []);
 
@@ -65,13 +73,15 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
       // Автоматическое падение фигуры вниз
       setGameState(prev => ({
         ...prev,
-        currentTetromino: prev.currentTetromino ? {
-          ...prev.currentTetromino,
-          position: {
-            ...prev.currentTetromino.position,
-            y: prev.currentTetromino.position.y + 1
-          }
-        } : null
+        currentTetromino: prev.currentTetromino
+          ? {
+              ...prev.currentTetromino,
+              position: {
+                ...prev.currentTetromino.position,
+                y: prev.currentTetromino.position.y + 1,
+              },
+            }
+          : null,
       }));
     },
   });
@@ -80,21 +90,24 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
   const moveTetromino = useCallback((dx: number, dy: number) => {
     setGameState(prev => ({
       ...prev,
-      currentTetromino: prev.currentTetromino ? {
-        ...prev.currentTetromino,
-        position: {
-          x: prev.currentTetromino.position.x + dx,
-          y: prev.currentTetromino.position.y + dy
-        }
-      } : null
+      currentTetromino: prev.currentTetromino
+        ? {
+            ...prev.currentTetromino,
+            position: {
+              x: prev.currentTetromino.position.x + dx,
+              y: prev.currentTetromino.position.y + dy,
+            },
+          }
+        : null,
     }));
   }, []);
 
   const rotateTetromino = useCallback(() => {
     setGameState(prev => ({
       ...prev,
-      currentTetromino: prev.currentTetromino ? 
-        TetrominoUtils.rotate(prev.currentTetromino) : null
+      currentTetromino: prev.currentTetromino
+        ? TetrominoUtils.rotate(prev.currentTetromino)
+        : null,
     }));
   }, []);
 
@@ -107,9 +120,15 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
       const newNextTetrominos = prev.nextTetrominos.slice(1);
 
       // Добавляем новую фигуру в очередь если нужно
-      const finalNextTetrominos = newNextTetrominos.length >= 3 
-        ? newNextTetrominos 
-        : [...newNextTetrominos, ...TetrominoFactory.createMultiple(3 - newNextTetrominos.length)];
+      const finalNextTetrominos =
+        newNextTetrominos.length >= 3
+          ? newNextTetrominos
+          : [
+              ...newNextTetrominos,
+              ...TetrominoFactory.createMultiple(
+                3 - newNextTetrominos.length
+              ),
+            ];
 
       if (newCurrentTetromino) {
         return {
@@ -117,7 +136,7 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
           currentTetromino: newCurrentTetromino,
           nextTetrominos: finalNextTetrominos,
           heldTetromino: newHeldTetromino,
-          canHold: false
+          canHold: false,
         };
       }
 
@@ -129,13 +148,15 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
     setGameState(prev => {
       return {
         ...prev,
-        currentTetromino: prev.currentTetromino ? {
-          ...prev.currentTetromino,
-          position: {
-            ...prev.currentTetromino.position,
-            y: prev.currentTetromino.position.y + 10 // Быстрое падение
-          }
-        } : null
+        currentTetromino: prev.currentTetromino
+          ? {
+              ...prev.currentTetromino,
+              position: {
+                ...prev.currentTetromino.position,
+                y: prev.currentTetromino.position.y + 10, // Быстрое падение
+              },
+            }
+          : null,
       };
     });
   }, []);
@@ -159,14 +180,14 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
   const addLines = useCallback((lines: number) => {
     setGameState(prev => ({
       ...prev,
-      linesCleared: prev.linesCleared + lines
+      linesCleared: prev.linesCleared + lines,
     }));
   }, []);
 
   const addWord = useCallback(() => {
     setGameState(prev => ({
       ...prev,
-      wordsFormed: prev.wordsFormed + 1
+      wordsFormed: prev.wordsFormed + 1,
     }));
   }, []);
 
@@ -174,7 +195,7 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
     setGameState(prev => ({
       ...prev,
       level: prev.level + 1,
-      gameSpeed: Math.max(100, prev.gameSpeed - config.speedIncreasePerLevel)
+      gameSpeed: Math.max(100, prev.gameSpeed - config.speedIncreasePerLevel),
     }));
   }, [config.speedIncreasePerLevel]);
 
@@ -218,6 +239,6 @@ export const useGameState = (config: GameConfig = DEFAULT_GAME_CONFIG) => {
       setGameOver,
       setCanHold,
       spawnNew: spawnNewTetromino,
-    }
+    },
   };
 };

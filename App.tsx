@@ -8,10 +8,11 @@ import GameScreen from './src/screens/GameScreen';
 import InstructionsScreen from './src/screens/InstructionsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import DictionaryScreen from './src/screens/DictionaryScreen';
+import { GameState, GameConfig } from './src/types/game';
 
 export type RootStackParamList = {
   Home: undefined;
-  Game: undefined;
+  Game: { savedGameData?: { gameState: GameState; config: GameConfig } } | undefined;
   Instructions: undefined;
   Dictionary: undefined;
   Settings: undefined;
