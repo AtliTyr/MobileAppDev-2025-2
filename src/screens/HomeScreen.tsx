@@ -1,6 +1,6 @@
 // src/screens/HomeScreen.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ImageBackground } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import PrimaryButton from '../components/PrimaryButton';
@@ -14,7 +14,6 @@ export default function HomeScreen({ navigation }: Props) {
   const [savedGameExists, setSavedGameExists] = useState(false);
   const [showNewGameConfirm, setShowNewGameConfirm] = useState(false);
 
-  // Проверяем наличие сохранения каждый раз, когда возвращаемся на HomeScreen
   useFocusEffect(
     React.useCallback(() => {
       const checkSave = async () => {
@@ -42,100 +41,123 @@ export default function HomeScreen({ navigation }: Props) {
   const handleContinueGame = async () => {
     const loadedData = await loadGame();
     if (loadedData) {
-      // Передаём загруженное состояние на GameScreen
       navigation.navigate('Game', { savedGameData: loadedData });
     }
   };
 
   return (
-    <View style={styles.container}>
-      {/* Заголовок приложения */}
-      <Text style={styles.title}>🎮 WORDTETRIS</Text>
+    <ImageBackground
+      source={require('../../assets/images/home_background.png')}
+      style={styles.backgroundImage}
+      imageStyle={styles.imageStyle}
+    >
+      <View style={styles.container}>
+        {/* Заголовок приложения */}
+        {/* <Text style={styles.title}>🎮 WORDTETRIS</Text> */}
+        <View style={styles.innerContainer}>
+          {/* Кнопка продолжить (видна только если есть сохранение) */}
+          {savedGameExists && (
+            <PrimaryButton
+              title="🔄 ПРОДОЛЖИТЬ ИГРУ"
+              onPress={handleContinueGame}
+            />
+          )}
 
-      {/* Кнопка продолжить (видна только если есть сохранение) */}
-      {savedGameExists && (
-        <PrimaryButton
-          title="🔄 ПРОДОЛЖИТЬ ИГРУ"
-          onPress={handleContinueGame}
-        />
-      )}
+          {/* Кнопка начала новой игры */}
+          <PrimaryButton
+            title="🎮 НОВАЯ ИГРА"
+            onPress={handleNewGame}
+          />
 
-      {/* Кнопка начала новой игры */}
-      <PrimaryButton
-        title="🎮 НОВАЯ ИГРА"
-        onPress={handleNewGame}
-      />
+          {/* Кнопка инструкций */}
+          <PrimaryButton
+            title="📜 ИНСТРУКЦИИ"
+            onPress={() => navigation.navigate('Instructions')}
+          />
 
-      {/* Кнопка инструкций */}
-      <PrimaryButton
-        title="📜 ИНСТРУКЦИИ"
-        onPress={() => navigation.navigate('Instructions')}
-      />
+          {/* Кнопка словаря */}
+          <PrimaryButton
+            title="📚 СЛОВАРЬ"
+            onPress={() => navigation.navigate('Dictionary')}
+          />
 
-      {/* Кнопка словаря */}
-      <PrimaryButton
-        title="📚 СЛОВАРЬ"
-        onPress={() => navigation.navigate('Dictionary')}
-      />
-
-      {/* Кнопка настроек */}
-      <PrimaryButton
-        title="⚙️ НАСТРОЙКИ"
-        onPress={() => navigation.navigate('Settings')}
-      />
-
-      <Text style={styles.footer}>
-        Разработка: Лабораторная №3 — Управление ресурсами и использование хуков
-      </Text>
-
-      {/* Modal подтверждения новой игры */}
-      <Modal
-        visible={showNewGameConfirm}
-        transparent={true}
-        animationType="fade"
-      >
-        <View style={confirmModal.overlay}>
-          <View style={confirmModal.container}>
-            <Text style={confirmModal.title}>⚠️ Внимание!</Text>
-            <Text style={confirmModal.message}>
-              Существующее сохранение будет потеряно. Вы уверены?
-            </Text>
-
-            <TouchableOpacity
-              style={confirmModal.button}
-              onPress={handleConfirmNewGame}
-            >
-              <Text style={confirmModal.buttonText}>НАЧАТЬ ЗАНОВО</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={confirmModal.cancelButton}
-              onPress={() => setShowNewGameConfirm(false)}
-            >
-              <Text style={confirmModal.cancelButtonText}>ОТМЕНА</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Кнопка настроек */}
+          <PrimaryButton
+            title="⚙️ НАСТРОЙКИ"
+            onPress={() => navigation.navigate('Settings')}
+          />
         </View>
-      </Modal>
-    </View>
+        <Text style={styles.footer}>
+          Разработка: Лабораторная №4 — Работа с навигацией и мультимедиа
+        </Text>
+
+        {/* Modal подтверждения новой игры */}
+        <Modal
+          visible={showNewGameConfirm}
+          transparent={true}
+          animationType="fade"
+        >
+          <View style={confirmModal.overlay}>
+            <View style={confirmModal.container}>
+              <Text style={confirmModal.title}>⚠️ Внимание!</Text>
+              <Text style={confirmModal.message}>
+                Существующее сохранение будет потеряно. Вы уверены?
+              </Text>
+
+              <TouchableOpacity
+                style={confirmModal.button}
+                onPress={handleConfirmNewGame}
+              >
+                <Text style={confirmModal.buttonText}>НАЧАТЬ ЗАНОВО</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={confirmModal.cancelButton}
+                onPress={() => setShowNewGameConfirm(false)}
+              >
+                <Text style={confirmModal.cancelButtonText}>ОТМЕНА</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  backgroundImage: {
+    flex: 1,
+    // resizeMode: 'cover',
+  },
+  imageStyle: {
+    resizeMode: 'stretch',
+  },
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
+    // alignItems: 'center',
+    justifyContent: 'flex-end',
+    // padding: 16,
+    paddingHorizontal: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Полупрозрачный оверлей
+  },
+  innerContainer: {
+    flex: 1,
+    // alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginBottom: 60,
+
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     marginBottom: 40,
+    color: '#333',
   },
   footer: {
     position: 'absolute',
     bottom: 16,
+    left: 10,
     fontSize: 12,
     color: '#666',
   },

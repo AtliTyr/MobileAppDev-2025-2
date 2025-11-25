@@ -1,4 +1,5 @@
 // src/screens/GameScreen.tsx
+import { ImageBackground } from 'react-native';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, StyleSheet, StatusBar, TouchableOpacity, Text, Modal } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -172,204 +173,217 @@ export default function GameScreen({ navigation, route }: Props) {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar hidden />
+      <ImageBackground
+        source={require('../../assets/images/blue_darkblue_bgshort.png')}
+        style={styles.backgroundImage}
+        imageStyle={styles.gameImageStyle}
+      >
+        <View style={styles.container}>
+          <StatusBar hidden />
 
-      {/* Панель статистики */}
-      <View style={statPanel.container}>
-        <View style={statPanel.box}>
-          <Text style={statPanel.label}>ЛИНИИ</Text>
-          <Text style={statPanel.value}>{gameState.linesCleared}</Text>
-        </View>
-        <View style={statPanel.box}>
-          <Text style={statPanel.label}>УРОВЕНЬ</Text>
-          <Text style={statPanel.value}>{gameState.level}</Text>
-        </View>
-        <View style={statPanel.box}>
-          <Text style={statPanel.label}>ОЧКИ</Text>
-          <Text style={statPanel.value}>{gameState.score}</Text>
-        </View>
-      </View>
+          {/* Панель статистики */}
+          <View style={statPanel.container}>
+            <View style={statPanel.box}>
+              <Text style={statPanel.label}>ЛИНИИ</Text>
+              <Text style={statPanel.value}>{gameState.linesCleared}</Text>
+            </View>
+            <View style={statPanel.box}>
+              <Text style={statPanel.label}>УРОВЕНЬ</Text>
+              <Text style={statPanel.value}>{gameState.level}</Text>
+            </View>
+            <View style={statPanel.box}>
+              <Text style={statPanel.label}>ОЧКИ</Text>
+              <Text style={statPanel.value}>{gameState.score}</Text>
+            </View>
+          </View>
 
-      {/* Кнопки управления */}
-      <View style={controls.container}>
-        <TouchableOpacity onPress={handlePause} style={controls.button}>
-          <MaterialCommunityIcons
-            name={gameState.isPaused ? 'play-box-outline' : 'pause-box-outline'}
-            size={28}
-            color="#333"
-          />
-        </TouchableOpacity>
+          {/* Кнопки управления */}
+          <View style={controls.container}>
+            <TouchableOpacity onPress={handlePause} style={controls.button}>
+              <MaterialCommunityIcons
+                name={gameState.isPaused ? 'play-box-outline' : 'pause-box-outline'}
+                size={28}
+                color="white"
+              />
+            </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => setShowDebug(!showDebug)} style={controls.button}>
-          <MaterialCommunityIcons
-            name="bug"
-            size={28}
-            color="#333"
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* Основные игровые компоненты */}
-      <View style={gameArea.container}>
-        {/* Правая панель - карман и следующие фигуры */}
-        <View style={gameArea.rightPanel}>
-          {/* Карман */}
-          <View style={gameArea.section}>
-            <Text style={gameArea.sectionTitle}>КАРМАН</Text>
-            <TouchableOpacity
-              onPress={handleHold}
-              disabled={!gameState.canHold || isControlsDisabled || gameState.isPaused}
-              style={(!gameState.canHold || isControlsDisabled || gameState.isPaused) && gameArea.disabled}
-            >
-              <TetrominoBox
-                tetromino={gameState.heldTetromino}
-                size="medium"
-                showLetters={true}
+            <TouchableOpacity onPress={() => setShowDebug(!showDebug)} style={controls.button}>
+              <MaterialCommunityIcons
+                name="bug"
+                size={28}
+                color="white"
               />
             </TouchableOpacity>
           </View>
 
-          {/* Следующие фигуры */}
-          <View style={gameArea.section}>
-            <Text style={gameArea.sectionTitle}>СЛЕДУЮЩИЕ</Text>
-            <View style={gameArea.nextFigures}>
-              {gameState.nextTetrominos.slice(0, 3).map((tetromino, index) => (
-                <TetrominoBox
-                  key={index}
-                  tetromino={tetromino}
-                  size="small"
-                  showLetters={false}
-                />
-              ))}
+          {/* Основные игровые компоненты */}
+          <View style={gameArea.container}>
+            {/* Правая панель - карман и следующие фигуры */}
+            <View style={gameArea.rightPanel}>
+              {/* Карман */}
+              <View style={gameArea.section}>
+                <Text style={gameArea.sectionTitle}>КАРМАН</Text>
+                <TouchableOpacity
+                  onPress={handleHold}
+                  disabled={!gameState.canHold || isControlsDisabled || gameState.isPaused}
+                  style={(!gameState.canHold || isControlsDisabled || gameState.isPaused) && gameArea.disabled}
+                >
+                  <TetrominoBox
+                    tetromino={gameState.heldTetromino}
+                    size="medium"
+                    showLetters={true}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Следующие фигуры */}
+              <View style={gameArea.section}>
+                <Text style={gameArea.sectionTitle}>СЛЕДУЮЩИЕ</Text>
+                <View style={gameArea.nextFigures}>
+                  {gameState.nextTetrominos.slice(0, 3).map((tetromino, index) => (
+                    <TetrominoBox
+                      key={index}
+                      tetromino={tetromino}
+                      size="small"
+                      showLetters={false}
+                    />
+                  ))}
+                </View>
+              </View>
+            </View>
+
+            {/* Центр - игровое поле с обработчиками свайпов */}
+            <View style={gameArea.center} {...touchControls.panHandlers}>
+              <TetrisBoard
+                board={gameState.board}
+                currentTetromino={gameState.currentTetromino}
+              />
             </View>
           </View>
+
+          {/* Оверлей таймера обратного отсчёта */}
+          {countdownTime !== null && (
+            <View style={countdownOverlay.container}>
+              <Text style={countdownOverlay.text}>{countdownTime}</Text>
+            </View>
+          )}
+
+          {/* Дебаг панель */}
+          {showDebug && (
+            <View style={debugPanel.container}>
+              <Text style={debugPanel.title}>DEBUG PANEL</Text>
+              <View style={debugPanel.row}>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveLeft}>
+                  <Text>←</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveRight}>
+                  <Text>→</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveDown}>
+                  <Text>↓</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.rotate}>
+                  <Text>↻</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={debugPanel.row}>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.addLine}>
+                  <Text>+1 Line</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.addLevel}>
+                  <Text>+1 Level</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.addScore}>
+                  <Text>+100 Score</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.spawnNew}>
+                  <Text>New Fig</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={debugPanel.row}>
+                <TouchableOpacity style={debugPanel.button} onPress={debugActions.toggleHold}>
+                  <Text>Hold: {gameState.canHold ? 'ON' : 'OFF'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={debugPanel.button} onPress={handleRestart}>
+                  <Text>Restart</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Меню паузы */}
+          <Modal
+            visible={showPauseMenu}
+            transparent={true}
+            animationType="fade"
+          >
+            <View style={pauseMenu.overlay}>
+              <View style={pauseMenu.container}>
+                <Text style={pauseMenu.title}>ПАУЗА</Text>
+
+                <TouchableOpacity style={pauseMenu.button} onPress={handlePause}>
+                  <Text style={pauseMenu.buttonText}>ПРОДОЛЖИТЬ</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={pauseMenu.button} onPress={handleRestart}>
+                  <Text style={pauseMenu.buttonText}>ЗАНОВО</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={pauseMenu.button} onPress={handleExitRequest}>
+                  <Text style={pauseMenu.buttonText}>ГЛАВНОЕ МЕНЮ</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={pauseMenu.button} onPress={() => setShowDebug(true)}>
+                  <Text style={pauseMenu.buttonText}>DEBUG</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Modal подтверждения выхода */}
+          <Modal
+            visible={showExitConfirm}
+            transparent={true}
+            animationType="fade"
+          >
+            <View style={exitConfirmModal.overlay}>
+              <View style={exitConfirmModal.container}>
+                <Text style={exitConfirmModal.title}>Сохранить игру?</Text>
+                <Text style={exitConfirmModal.message}>
+                  Вы можете продолжить позже, если сохраните.
+                </Text>
+
+                <TouchableOpacity style={exitConfirmModal.button} onPress={handleExitWithSave}>
+                  <Text style={exitConfirmModal.buttonText}>💾 СОХРАНИТЬ И ВЫЙТИ</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={exitConfirmModal.button} onPress={handleExitWithoutSave}>
+                  <Text style={exitConfirmModal.buttonText}>ВЫЙТИ БЕЗ СОХРАНЕНИЯ</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={exitConfirmModal.cancelButton} onPress={() => setShowExitConfirm(false)}>
+                  <Text style={exitConfirmModal.cancelButtonText}>ОТМЕНА</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
         </View>
-
-        {/* Центр - игровое поле с обработчиками свайпов */}
-        <View style={gameArea.center} {...touchControls.panHandlers}>
-          <TetrisBoard
-            board={gameState.board}
-            currentTetromino={gameState.currentTetromino}
-          />
-        </View>
-      </View>
-
-      {/* Оверлей таймера обратного отсчёта */}
-      {countdownTime !== null && (
-        <View style={countdownOverlay.container}>
-          <Text style={countdownOverlay.text}>{countdownTime}</Text>
-        </View>
-      )}
-
-      {/* Дебаг панель */}
-      {showDebug && (
-        <View style={debugPanel.container}>
-          <Text style={debugPanel.title}>DEBUG PANEL</Text>
-          <View style={debugPanel.row}>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveLeft}>
-              <Text>←</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveRight}>
-              <Text>→</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveDown}>
-              <Text>↓</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.rotate}>
-              <Text>↻</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={debugPanel.row}>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.addLine}>
-              <Text>+1 Line</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.addLevel}>
-              <Text>+1 Level</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.addScore}>
-              <Text>+100 Score</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.spawnNew}>
-              <Text>New Fig</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={debugPanel.row}>
-            <TouchableOpacity style={debugPanel.button} onPress={debugActions.toggleHold}>
-              <Text>Hold: {gameState.canHold ? 'ON' : 'OFF'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={debugPanel.button} onPress={handleRestart}>
-              <Text>Restart</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* Меню паузы */}
-      <Modal
-        visible={showPauseMenu}
-        transparent={true}
-        animationType="fade"
-      >
-        <View style={pauseMenu.overlay}>
-          <View style={pauseMenu.container}>
-            <Text style={pauseMenu.title}>ПАУЗА</Text>
-
-            <TouchableOpacity style={pauseMenu.button} onPress={handlePause}>
-              <Text style={pauseMenu.buttonText}>ПРОДОЛЖИТЬ</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={pauseMenu.button} onPress={handleRestart}>
-              <Text style={pauseMenu.buttonText}>ЗАНОВО</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={pauseMenu.button} onPress={handleExitRequest}>
-              <Text style={pauseMenu.buttonText}>ГЛАВНОЕ МЕНЮ</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={pauseMenu.button} onPress={() => setShowDebug(true)}>
-              <Text style={pauseMenu.buttonText}>DEBUG</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal подтверждения выхода */}
-      <Modal
-        visible={showExitConfirm}
-        transparent={true}
-        animationType="fade"
-      >
-        <View style={exitConfirmModal.overlay}>
-          <View style={exitConfirmModal.container}>
-            <Text style={exitConfirmModal.title}>Сохранить игру?</Text>
-            <Text style={exitConfirmModal.message}>
-              Вы можете продолжить позже, если сохраните.
-            </Text>
-
-            <TouchableOpacity style={exitConfirmModal.button} onPress={handleExitWithSave}>
-              <Text style={exitConfirmModal.buttonText}>💾 СОХРАНИТЬ И ВЫЙТИ</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={exitConfirmModal.button} onPress={handleExitWithoutSave}>
-              <Text style={exitConfirmModal.buttonText}>ВЫЙТИ БЕЗ СОХРАНЕНИЯ</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={exitConfirmModal.cancelButton} onPress={() => setShowExitConfirm(false)}>
-              <Text style={exitConfirmModal.cancelButtonText}>ОТМЕНА</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
+      </ImageBackground>
   );
 }
 
 // Стили...
 const styles = StyleSheet.create({
+  backgroundImage: {
+    flex: 1,
+    resizeMode: 'repeat',
+  },
+  gameImageStyle: {
+    resizeMode: 'repeat',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    // backgroundColor: '#fff',
   },
 });
 
@@ -430,6 +444,8 @@ const gameArea = StyleSheet.create({
   center: {
     flex: 1,
     alignItems: 'center',
+    marginRight: 30,
+    marginTop: 7,
   },
   rightPanel: {
     width: 80,
@@ -442,7 +458,7 @@ const gameArea = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#333',
+    color: 'white',
     textAlign: 'center',
   },
   nextFigures: {
