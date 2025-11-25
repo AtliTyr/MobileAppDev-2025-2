@@ -1,21 +1,25 @@
-// SettingsScreen.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
 import PrimaryButton from '../components/PrimaryButton';
 import { useAudio } from '../context/AudioContext';
 import * as Brightness from 'expo-brightness';
+import { RootStackParamList } from '../../App';
 
-export default function SettingsScreen() {
-  const { 
-    audioSettings, 
-    updateSettings, 
+type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
+
+export default function SettingsScreen({ navigation }: Props) {
+  const {
+    audioSettings,
+    updateSettings,
     resetSettings,
-    getSettingsForDisplay 
+    getSettingsForDisplay,
   } = useAudio();
-  
-  const [displaySettings, setDisplaySettings] = useState(() => getSettingsForDisplay());
 
+  const [displaySettings, setDisplaySettings] = useState(() =>
+    getSettingsForDisplay()
+  );
   const [brightness, setBrightness] = useState(1);
 
   useEffect(() => {
@@ -55,20 +59,19 @@ export default function SettingsScreen() {
     handleBrightnessChange(0.7);
   };
 
-  const handleBack = () => {
-  };
-
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>НАСТРОЙКИ</Text>
-      
+      <Text style={styles.title}>⚙️ НАСТРОЙКИ</Text>
+
       <View style={styles.settingsContainer}>
         {/* Музыка */}
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Музыка</Text>
             <Text style={styles.settingValue}>
-              {displaySettings.musicEnabled ? `Вкл (${displaySettings.musicVolume}%)` : 'Выкл'}
+              {displaySettings.musicEnabled
+                ? `Вкл (${displaySettings.musicVolume}%)`
+                : 'Выкл'}
             </Text>
           </View>
           <Switch
@@ -76,19 +79,17 @@ export default function SettingsScreen() {
             onValueChange={handleMusicToggle}
           />
         </View>
-        
+
         {audioSettings.musicEnabled && (
           <View style={styles.sliderContainer}>
             <Text style={styles.sliderLabel}>Громкость музыки</Text>
             <Slider
               style={styles.slider}
               minimumValue={0}
-              maximumValue={1}
-              value={audioSettings.musicVolume}
+              maximumValue={100}
+              step={1}
+              value={displaySettings.musicVolume}
               onValueChange={handleMusicVolumeChange}
-              minimumTrackTintColor="#1fb28a"
-              maximumTrackTintColor="#d3d3d3"
-              thumbTintColor="#1fb28a"
             />
             <Text style={styles.sliderValue}>{displaySettings.musicVolume}%</Text>
           </View>
@@ -99,7 +100,9 @@ export default function SettingsScreen() {
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Звуки</Text>
             <Text style={styles.settingValue}>
-              {displaySettings.soundsEnabled ? `Вкл (${displaySettings.soundsVolume}%)` : 'Выкл'}
+              {displaySettings.soundsEnabled
+                ? `Вкл (${displaySettings.soundsVolume}%)`
+                : 'Выкл'}
             </Text>
           </View>
           <Switch
@@ -107,19 +110,17 @@ export default function SettingsScreen() {
             onValueChange={handleSoundsToggle}
           />
         </View>
-        
+
         {audioSettings.soundsEnabled && (
           <View style={styles.sliderContainer}>
             <Text style={styles.sliderLabel}>Громкость звуков</Text>
             <Slider
               style={styles.slider}
               minimumValue={0}
-              maximumValue={1}
-              value={audioSettings.soundsVolume}
+              maximumValue={100}
+              step={1}
+              value={displaySettings.soundsVolume}
               onValueChange={handleSoundsVolumeChange}
-              minimumTrackTintColor="#1fb28a"
-              maximumTrackTintColor="#d3d3d3"
-              thumbTintColor="#1fb28a"
             />
             <Text style={styles.sliderValue}>{displaySettings.soundsVolume}%</Text>
           </View>
@@ -130,13 +131,11 @@ export default function SettingsScreen() {
           <Text style={styles.sliderLabel}>Яркость экрана</Text>
           <Slider
             style={styles.slider}
-            minimumValue={0.01}
+            minimumValue={0.1}
             maximumValue={1}
+            step={0.01}
             value={brightness}
             onValueChange={handleBrightnessChange}
-            minimumTrackTintColor="#1fb28a"
-            maximumTrackTintColor="#d3d3d3"
-            thumbTintColor="#1fb28a"
           />
           <Text style={styles.sliderValue}>{Math.round(brightness * 100)}%</Text>
         </View>
@@ -144,13 +143,12 @@ export default function SettingsScreen() {
 
       <View style={styles.buttonsContainer}>
         <PrimaryButton
-          title="Сбросить настройки"
+          title="🔄 Сбросить настройки"
           onPress={handleResetSettings}
         />
-        
         <PrimaryButton
-          title="Назад"
-          onPress={handleBack}
+          title="← Назад"
+          onPress={() => navigation.goBack()}
         />
       </View>
     </View>
@@ -168,6 +166,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     marginBottom: 24,
+    fontWeight: 'bold',
   },
   settingsContainer: {
     width: '100%',
@@ -188,6 +187,7 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 18,
     marginBottom: 4,
+    fontWeight: 'bold',
   },
   settingValue: {
     fontSize: 14,
@@ -201,6 +201,7 @@ const styles = StyleSheet.create({
   sliderLabel: {
     fontSize: 16,
     marginBottom: 8,
+    fontWeight: 'bold',
   },
   slider: {
     width: '100%',

@@ -1,22 +1,28 @@
 // src/screens/GameScreen.tsx
 import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, StatusBar, TouchableOpacity, Text, Modal } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import TetrisBoard from '../components/TetrisBoard';
 import TetrominoBox from '../components/TetrominoBox';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGameState } from '../hooks/useGameState';
 import { useTouchGameControls } from '../hooks/useTouchGameControls';
+import { RootStackParamList } from '../../App';
 
-export default function GameScreen() {
+type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
+
+export default function GameScreen({ navigation }: Props) {
   const { gameState, actions } = useGameState();
   const [showDebug, setShowDebug] = useState(false);
   const [showPauseMenu, setShowPauseMenu] = useState(false);
+
 
   // Обработчики для свайпов
   const handleSoftDrop = useCallback((speed: number) => {
     console.log('Soft drop with speed:', speed);
     actions.moveTetromino(0, 1);
   }, [actions]);
+
 
   const touchControls = useTouchGameControls({
     onMoveLeft: () => actions.moveTetromino(-1, 0),
@@ -29,6 +35,7 @@ export default function GameScreen() {
     },
   });
 
+
   const handlePause = () => {
     if (gameState.isPaused) {
       actions.resume();
@@ -39,14 +46,22 @@ export default function GameScreen() {
     }
   };
 
+
   const handleHold = () => {
     actions.holdTetromino();
   };
+
 
   const handleRestart = () => {
     actions.restart();
     setShowPauseMenu(false);
   };
+
+  const handleBackHome = () => {
+    actions.restart();
+    navigation.navigate('Home');
+  };
+
 
   const debugActions = {
     moveLeft: () => actions.moveTetromino(-1, 0),
@@ -60,9 +75,11 @@ export default function GameScreen() {
     spawnNew: () => actions.spawnNew(),
   };
 
+
   return (
     <View style={styles.container}>
       <StatusBar hidden />
+
 
       {/* Панель статистики */}
       <View style={statPanel.container}>
@@ -99,6 +116,7 @@ export default function GameScreen() {
         </TouchableOpacity>
       </View>
 
+
       {/* Основные игровые компоненты */}
       <View style={gameArea.container}>
         {/* Правая панель - карман и следующие фигуры */}
@@ -119,6 +137,7 @@ export default function GameScreen() {
             </TouchableOpacity>
           </View>
 
+
           {/* Следующие фигуры */}
           <View style={gameArea.section}>
             <Text style={gameArea.sectionTitle}>СЛЕДУЮЩИЕ</Text>
@@ -135,6 +154,7 @@ export default function GameScreen() {
           </View>
         </View>
 
+
         {/* Центр - игровое поле с обработчиками свайпов */}
         <View style={gameArea.center} {...touchControls.panHandlers}>
           <TetrisBoard 
@@ -143,6 +163,7 @@ export default function GameScreen() {
           />
         </View>
       </View>
+
 
       {/* Дебаг панель */}
       {showDebug && (
@@ -187,6 +208,7 @@ export default function GameScreen() {
         </View>
       )}
 
+
       {/* Меню паузы */}
       <Modal
         visible={showPauseMenu}
@@ -204,6 +226,10 @@ export default function GameScreen() {
             <TouchableOpacity style={pauseMenu.button} onPress={handleRestart}>
               <Text style={pauseMenu.buttonText}>ЗАНОВО</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity style={pauseMenu.button} onPress={handleBackHome}>
+              <Text style={pauseMenu.buttonText}>ГЛАВНОЕ МЕНЮ</Text>
+            </TouchableOpacity>
             
             <TouchableOpacity style={pauseMenu.button} onPress={() => setShowDebug(true)}>
               <Text style={pauseMenu.buttonText}>DEBUG</Text>
@@ -215,12 +241,14 @@ export default function GameScreen() {
   );
 }
 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
   },
 });
+
 
 const statPanel = StyleSheet.create({
   container: {
@@ -251,6 +279,7 @@ const statPanel = StyleSheet.create({
   },
 });
 
+
 const controls = StyleSheet.create({
   container: {
     flexDirection: 'row',
@@ -263,6 +292,7 @@ const controls = StyleSheet.create({
     padding: 8,
   },
 });
+
 
 const gameArea = StyleSheet.create({
   container: {
@@ -303,6 +333,7 @@ const gameArea = StyleSheet.create({
   },
 });
 
+
 const debugPanel = StyleSheet.create({
   container: {
     position: 'absolute',
@@ -335,6 +366,7 @@ const debugPanel = StyleSheet.create({
     borderWidth: 1,
   },
 });
+
 
 const pauseMenu = StyleSheet.create({
   overlay: {

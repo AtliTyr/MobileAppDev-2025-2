@@ -1,37 +1,44 @@
-// Экран приветствия/меню. Отсюда пользователь может начать игру и перейти к настройкам.
-// Демонстрируем базовые UI-компоненты: Text, Button, View, TouchableOpacity.
-
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import PrimaryButton from '../components/PrimaryButton';
+import { RootStackParamList } from '../../App';
 
-export default function HomeScreen() {
+type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+
+export default function HomeScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       {/* Заголовок приложения */}
-      <Text style={styles.title}>TETRIS</Text>
+      <Text style={styles.title}>🎮 WORDTETRIS</Text>
 
       {/* Кнопка начала игры. При нажатии переходим на экран Game */}
       <PrimaryButton
-        title="Начать игру"
-        onPress={() => {}}
+        title="🎮 Начать игру"
+        onPress={() => navigation.navigate('Game')}
       />
-      {/* Кнопка настроек. При нажатии переходим на экран Settings */}
-      <PrimaryButton
-        title="Настройки"
-        onPress={() => {}}
-      />
+
       {/* Кнопка инструкций. При нажатии переходим на экран Instructions */}
       <PrimaryButton
-        title="Инструкции"
-        onPress={() => {}}
+        title="📜 Инструкции"
+        onPress={() => navigation.navigate('Instructions')}
       />
+
       {/* Кнопка словаря. При нажатии переходим на экран Dictionary */}
       <PrimaryButton
-        title="Словарь"
-        onPress={() => {}}
+        title="📚 Словарь"
+        onPress={() => navigation.navigate('Dictionary')}
       />
-      <Text style={styles.footer}>Разработка: Лабораторная №3 — Управление ресурсами и использование хуков</Text>
+
+      {/* Кнопка настроек. При нажатии переходим на экран Settings */}
+      <PrimaryButton
+        title="⚙️ Настройки"
+        onPress={() => navigation.navigate('Settings')}
+      />
+
+      <Text style={styles.footer}>
+        Разработка: Лабораторная №3 — Управление ресурсами и использование хуков
+      </Text>
     </View>
   );
 }
@@ -44,8 +51,9 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   title: {
-    fontSize: 28,
-    marginBottom: 24,
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginBottom: 40,
   },
   footer: {
     position: 'absolute',
