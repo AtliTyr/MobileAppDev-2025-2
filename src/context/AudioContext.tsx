@@ -1,30 +1,63 @@
-// contexts/AudioContext.tsx
-import React, { createContext, useContext, ReactNode } from 'react';
-import { useAudioManager } from '../hooks/useAudioManager';
+// src/context/AudioContext.tsx
 
-// Создаем тип для контекста
-type AudioContextType = ReturnType<typeof useAudioManager>;
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-const AudioContext = createContext<AudioContextType | null>(null);
-
-interface AudioProviderProps {
-  children: ReactNode;
+interface AudioSettings {
+  musicEnabled: boolean;
+  musicVolume: number;
+  soundsEnabled: boolean;
+  soundsVolume: number;
 }
 
-export const AudioProvider: React.FC<AudioProviderProps> = ({ children }) => {
-  const audioManager = useAudioManager();
-  
+interface AudioContextType {
+  audioSettings: AudioSettings;
+  updateSettings: (settings: Partial<AudioSettings>) => void;
+  resetSettings: () => void;
+  getSettingsForDisplay: () => AudioSettings;
+}
+
+const defaultSettings: AudioSettings = {
+  musicEnabled: true,
+  musicVolume: 70,
+  soundsEnabled: true,
+  soundsVolume: 70,
+};
+
+const AudioContext = createContext<AudioContextType | undefined>(undefined);
+
+export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>(defaultSettings);
+
+  const updateSettings = (settings: Partial<AudioSettings>): void => {
+    setAudioSettings(prev => ({ ...prev, ...settings }));
+  };
+
+  const resetSettings = (): void => {
+    setAudioSettings(defaultSettings);
+  };
+
+  const getSettingsForDisplay = (): AudioSettings => {
+    return audioSettings;
+  };
+
+  const value: AudioContextType = {
+    audioSettings,
+    updateSettings,
+    resetSettings,
+    getSettingsForDisplay,
+  };
+
   return (
-    <AudioContext.Provider value={audioManager}>
+    <AudioContext.Provider value={value}>
       {children}
     </AudioContext.Provider>
   );
 };
 
-export const useAudio = () => {
+export const useAudio = (): AudioContextType => {
   const context = useContext(AudioContext);
-  if (!context) {
-    throw new Error('useAudio must be used within AudioProvider');
+  if (context === undefined) {
+    throw new Error('useAudio должен быть использован внутри AudioProvider');
   }
   return context;
 };

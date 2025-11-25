@@ -1,8 +1,8 @@
 // src/screens/HomeScreen.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ImageBackground } from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import PrimaryButton from '../components/PrimaryButton';
 import { useGamePersistence } from '../hooks/useGamePersistence';
 import { RootStackParamList } from '../../App';
@@ -23,6 +23,17 @@ export default function HomeScreen({ navigation }: Props) {
       checkSave();
     }, [hasSavedGame])
   );
+
+  // ГЛАВНОЕ - блокируем swipe back жесты на главном меню
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      // Блокируем ВСЕ попытки уйти со стартового экрана
+      e.preventDefault();
+      console.log('🚫 Swipe back заблокирован на главном меню');
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const handleNewGame = () => {
     if (savedGameExists) {
@@ -128,7 +139,6 @@ export default function HomeScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   backgroundImage: {
     flex: 1,
-    // resizeMode: 'cover',
   },
   imageStyle: {
     resizeMode: 'stretch',
