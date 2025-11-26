@@ -1,4 +1,5 @@
 // hooks/useGameLoop.ts
+
 import { useEffect, useRef, useCallback } from 'react';
 import { GameState } from '../types/game';
 
@@ -7,14 +8,11 @@ interface GameLoopProps {
   onTick: () => void;
 }
 
-export const useGameLoop = ({
-  gameState,
-  onTick
-}: GameLoopProps) => {
-  const lastTickTime = useRef<number>(0);
-  const animationFrameId = useRef<number>(0);
-  
-  // Используем useRef для колбэков, чтобы они не менялись при перерендере
+export const useGameLoop = ({ gameState, onTick }: GameLoopProps) => {
+  const lastTickTime = useRef(0);
+  const animationFrameId = useRef<number | null>(null);
+  const isRunningRef = useRef(true);
+
   const onTickRef = useRef(onTick);
   const isPausedRef = useRef(gameState.isPaused);
   const isGameOverRef = useRef(gameState.isGameOver);
@@ -30,29 +28,41 @@ export const useGameLoop = ({
 
   // Основной игровой цикл
   const gameLoop = useCallback((currentTime: number) => {
+    if (!isRunningRef.current) {
+      console.log('🛑 Game loop остановлен');
+      return;
+    }
+
     if (!isPausedRef.current && !isGameOverRef.current) {
       const deltaTime = currentTime - lastTickTime.current;
-      
       if (deltaTime > gameSpeedRef.current) {
         onTickRef.current();
         lastTickTime.current = currentTime;
       }
     }
-    
-    animationFrameId.current = requestAnimationFrame(gameLoop);
-  }, []); // Пустой массив зависимостей - функция создается один раз
+
+    if (isRunningRef.current) {
+      animationFrameId.current = requestAnimationFrame(gameLoop);
+    }
+  }, []);
 
   // Запуск и остановка игрового цикла
   useEffect(() => {
+    console.log('▶️ useGameLoop монтируется, запускаем цикл');
+    isRunningRef.current = true;
     lastTickTime.current = performance.now();
     animationFrameId.current = requestAnimationFrame(gameLoop);
-    
+
     return () => {
+      console.log('⏹️ useGameLoop размонтируется, ОСТАНАВЛИВАЕМ цикл');
+      isRunningRef.current = false;
+      
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
       }
     };
-  }, [gameLoop]); // Только gameLoop в зависимостях
+  }, [gameLoop]);
 
   return {};
 };

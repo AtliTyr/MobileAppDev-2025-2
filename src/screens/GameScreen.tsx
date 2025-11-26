@@ -33,6 +33,7 @@ import { useTouchGameControls } from '../hooks/useTouchGameControls';
 import { useGamePersistence } from '../hooks/useGamePersistence';
 import { useAudioManager } from '../hooks/useAudioManager';
 import { RootStackParamList } from '../../App';
+import { CommonActions } from '@react-navigation/native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
@@ -172,15 +173,27 @@ export default function GameScreen({ navigation, route }: Props) {
    */
   useEffect(() => {
     return () => {
-      console.log('🧹 GameScreen размонтируется, очищаем таймер');
+      console.log('🧹 GameScreen размонтируется - ПОЛНАЯ ОЧИСТКА');
+      
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
       }
-      setIsControlsDisabled(false);
+      
       stopBackgroundMusic();
+      
+      try {
+        actions.pause();
+      } catch (e) {
+        console.log('⚠️ actions уже недоступны при cleanup');
+      }
+      
+      setIsControlsDisabled(false);
+      
+      console.log('✅ Cleanup завершён');
     };
   }, [stopBackgroundMusic]);
+
 
   // ========================================
   // 🔄 ОБНОВЛЕНИЕ STATE REF
@@ -324,31 +337,143 @@ export default function GameScreen({ navigation, route }: Props) {
    * handleExitRequest - запрос выхода (показать диалог сохранения)
    */
   const handleExitRequest = () => {
-    setShowExitConfirm(true);
+    // Если game over - идём прямо в меню БЕЗ диалога
+    if (gameState.isGameOver) {
+      handleQuickExit();
+    } else {
+      // Если пауза - показываем диалог сохранения
+      setShowExitConfirm(true);
+    }
   };
 
   /**
    * handleExitWithSave - выход с сохранением
    */
   const handleExitWithSave = async () => {
+    console.log('🚪 ФИНАЛЬНЫЙ выход с сохранением - сбрасываем всё');
+    
+    // 1. СРАЗУ останавливаем игру
+    actions.pause();
+    
+    // 2. Останавливаем музыку
+    stopBackgroundMusic();
+    
+    // 3. СОХРАНЯЕМ перед сбросом
     await saveGame(gameState);
+    
+    // 4. ПЕРЕЗАГРУЖАЕМ ИГРУ ПОЛНОСТЬЮ
     actions.restart();
+    
+    // 5. Закрываем все модали
     setShowExitConfirm(false);
     setShowPauseMenu(false);
-    stopBackgroundMusic();
-    navigation.navigate('Home');
+    setCountdownTime(null);
+    setShowDebug(false);
+    setIsControlsDisabled(false);
+    
+    // 6. Очищаем таймер
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    
+    // 7. Сбрасываем флаг музыки
+    backgroundMusicStartedRef.current = false;
+    
+    // 8. ТОЛЬКО ПОТОМ идём в меню
+    console.log('✅ Полностью готово, идём в главное меню');
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      })
+    );
   };
 
   /**
    * handleExitWithoutSave - выход без сохранения
    */
   const handleExitWithoutSave = async () => {
+    console.log('🚪 ФИНАЛЬНЫЙ выход без сохранения - сбрасываем всё');
+    
+    // 1. СРАЗУ останавливаем игру
+    actions.pause();
+    
+    // 2. Останавливаем музыку
+    stopBackgroundMusic();
+    
+    // 3. Очищаем сохранение
     await clearSavedGame();
+    
+    // 4. ПЕРЕЗАГРУЖАЕМ ИГРУ ПОЛНОСТЬЮ
     actions.restart();
+    
+    // 5. Закрываем все модали
     setShowExitConfirm(false);
     setShowPauseMenu(false);
+    setCountdownTime(null);
+    setShowDebug(false);
+    setIsControlsDisabled(false);
+    
+    // 6. Очищаем таймер
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    
+    // 7. Сбрасываем флаг музыки
+    backgroundMusicStartedRef.current = false;
+    
+    // 8. ТОЛЬКО ПОТОМ идём в меню
+    console.log('✅ Полностью готово, идём в главное меню');
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      })
+    );
+  };
+
+  // Быстрый выход в меню (для game over - без диалога)
+  const handleQuickExit = async () => {
+    console.log('🚪 ФИНАЛЬНЫЙ выход - сбрасываем всё');
+    
+    // 1. СРАЗУ останавливаем игру
+    actions.pause();
+    
+    // 2. Останавливаем музыку
     stopBackgroundMusic();
-    navigation.navigate('Home');
+    
+    // 3. Очищаем сохранение
+    await clearSavedGame();
+    
+    // 4. ПЕРЕЗАГРУЖАЕМ ИГРУ ПОЛНОСТЬЮ (это сбросит весь gameState)
+    actions.restart();
+    
+    // 5. Закрываем все модали
+    setShowExitConfirm(false);
+    setShowPauseMenu(false);
+    setCountdownTime(null);
+    setShowDebug(false);
+    setIsControlsDisabled(false);
+    
+    // 6. Очищаем таймер
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    
+    // 7. Сбрасываем флаг музыки
+    backgroundMusicStartedRef.current = false;
+    
+    // 8. ТОЛЬКО ПОТОМ идём в меню
+    console.log('✅ Полностью готово, идём в главное меню');
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      })
+    );
   };
 
   // ========================================
@@ -572,6 +697,49 @@ export default function GameScreen({ navigation, route }: Props) {
           </View>
         </Modal>
       </View>
+      
+      <Modal
+        visible={gameState.isGameOver}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={gameOverModal.overlay}>
+          <View style={gameOverModal.container}>
+            <Text style={gameOverModal.title}>ИГРА ОКОНЧЕНА</Text>
+            
+            <View style={gameOverModal.statsContainer}>
+              <View style={gameOverModal.statRow}>
+                <Text style={gameOverModal.statLabel}>ОЧКИ:</Text>
+                <Text style={gameOverModal.statValue}>{gameState.score}</Text>
+              </View>
+              
+              <View style={gameOverModal.statRow}>
+                <Text style={gameOverModal.statLabel}>УРОВЕНЬ:</Text>
+                <Text style={gameOverModal.statValue}>{gameState.level}</Text>
+              </View>
+              
+              <View style={gameOverModal.statRow}>
+                <Text style={gameOverModal.statLabel}>ЛИНИИ:</Text>
+                <Text style={gameOverModal.statValue}>{gameState.linesCleared}</Text>
+              </View>
+            </View>
+            
+            <TouchableOpacity
+              style={gameOverModal.button}
+              onPress={handleRestart}
+            >
+              <Text style={gameOverModal.buttonText}>ИГРАТЬ ЗАНОВО</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={gameOverModal.cancelButton}
+              onPress={handleExitRequest}
+            >
+              <Text style={gameOverModal.cancelButtonText}>В ГЛАВНОЕ МЕНЮ</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -810,5 +978,81 @@ const countdownOverlay = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 10,
+  },
+});
+
+const gameOverModal = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  container: {
+    backgroundColor: '#222',
+    padding: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    minWidth: 300,
+    borderWidth: 3,
+    borderColor: '#ff4444',
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#ff4444',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  statsContainer: {
+    backgroundColor: 'rgba(255, 68, 68, 0.1)',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+    minWidth: '100%',
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 10,
+  },
+  statLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#999',
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  button: {
+    padding: 15,
+    marginVertical: 8,
+    backgroundColor: '#ff4444',
+    borderRadius: 8,
+    minWidth: 250,
+    alignItems: 'center',
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  cancelButton: {
+    padding: 12,
+    marginVertical: 8,
+    backgroundColor: 'rgba(255, 68, 68, 0.2)',
+    borderRadius: 8,
+    minWidth: 250,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ff4444',
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#ff4444',
   },
 });
