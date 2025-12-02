@@ -637,6 +637,16 @@ export const useGameState = (
       setGameOver,
       setCanHold,
       spawnNew: spawnNewTetromino,
+
+      // ✨ ДОБАВЛЕНО: итог за слово (OCP — только новый код)
+      applyWordResult: (word: string) => {
+        const len = (word || '').trim().length;
+        // Простое правило: за каждую букву после второй — 50 очков
+        const bonus = len > 2 ? (len - 2) * 50 : 0;
+        // Используем существующие простые действия, не меняя их логику
+        addWord();
+        if (bonus > 0) addScore(bonus);
+      },
     },
   };
 };

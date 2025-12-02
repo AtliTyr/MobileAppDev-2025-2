@@ -35,6 +35,10 @@ import { useAudioManager } from '../hooks/useAudioManager';
 import { RootStackParamList } from '../../App';
 import { CommonActions } from '@react-navigation/native';
 
+// ✨ Новое: режим разгадывания
+import { RecognitionModeOverlay } from '../components/RecognitionModeOverlay';
+import type { LetterPosition } from '../hooks/useWordRecognition';
+
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export default function GameScreen({ navigation, route }: Props) {
@@ -69,6 +73,11 @@ export default function GameScreen({ navigation, route }: Props) {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [countdownTime, setCountdownTime] = useState<number | null>(null);
   const [isControlsDisabled, setIsControlsDisabled] = useState(false);
+
+  // ✨ Новое: состояние режима разгадывания
+  const [recognitionModeActive, setRecognitionModeActive] = useState(false);
+  const [recognitionTimer, setRecognitionTimer] = useState(4);
+  const [selectedPath, setSelectedPath] = useState<LetterPosition[]>([]);
 
   // ========================================
   // 📍 REF ПЕРЕМЕННЫЕ (не перерендеривают)
@@ -194,7 +203,6 @@ export default function GameScreen({ navigation, route }: Props) {
     };
   }, [stopBackgroundMusic]);
 
-
   // ========================================
   // 🔄 ОБНОВЛЕНИЕ STATE REF
   // ========================================
@@ -244,6 +252,26 @@ export default function GameScreen({ navigation, route }: Props) {
       backgroundMusicStartedRef.current = false;
     }
   }, []);
+
+  useEffect(() => {
+    if (!recognitionModeActive) return;
+
+    const id = setInterval(() => {
+      setRecognitionTimer((t) => {
+        if (t <= 1) {
+          console.log('⏰ Recognition: время вышло');
+          setRecognitionModeActive(false);
+          actions.resume();
+          playBackgroundMusic();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(id);
+  }, [recognitionModeActive, actions, playBackgroundMusic]);
+
 
   // ========================================
   // 👆 ОБРАБОТКА СВАЙПОВ
@@ -477,6 +505,34 @@ export default function GameScreen({ navigation, route }: Props) {
   };
 
   // ========================================
+  // ✨ РЕЖИМ РАЗГАДЫВАНИЯ
+  // ========================================
+
+  const handleActivateRecognitionMode = () => {
+    if (gameState.isGameOver || recognitionModeActive) return;
+    console.log('🔍 Активируем режим разгадывания');
+    setRecognitionTimer(4);
+    setRecognitionModeActive(true);
+    actions.pause();
+    stopBackgroundMusic();
+  };
+
+  const handleRecognitionClose = (word: string) => {
+    console.log('📝 Слово из режима разгадывания:', word);
+    setRecognitionModeActive(false);
+
+    const trimmed = word.trim();
+    if (trimmed.length > 0) {
+      actions.addWord();
+      if (trimmed.length > 2) {
+        actions.addScore((trimmed.length - 2) * 50);
+      }
+    }
+
+    actions.resume();
+    playBackgroundMusic();
+  };
+  // ========================================
   // 🐛 DEBUG ДЕЙСТВИЯ
   // ========================================
 
@@ -500,6 +556,16 @@ export default function GameScreen({ navigation, route }: Props) {
     toggleHold: () => actions.setCanHold(!gameState.canHold),
     spawnNew: () => actions.spawnNew(),
   };
+
+  // Доска для режима разгадывания: ТОЛЬКО статичные буквы
+  const recognitionBoard = React.useMemo(() => {
+    return gameState.board.map(row =>
+      row.map(cell => ({
+        letter: cell?.letter ?? '',
+        tetrominoId: (cell as any)?.tetrominoId ?? null,
+      }))
+    );
+  }, [gameState.board]);
 
   // ========================================
   // 🎨 РЕНДЕРИНГ
@@ -579,6 +645,22 @@ export default function GameScreen({ navigation, route }: Props) {
                   />
                 ))}
               </View>
+            </View>
+
+            {/* ✨ Новая секция: режим слова */}
+            <View style={gameArea.section}>
+              <TouchableOpacity
+                onPress={handleActivateRecognitionMode}
+                disabled={gameState.isGameOver}
+                style={gameState.isGameOver && gameArea.disabled}
+              >
+                <Text style={gameArea.sectionTitle}>🔍 СЛОВО</Text>
+                {recognitionModeActive && (
+                  <Text style={[gameArea.sectionTitle, { fontSize: 10 }]}>
+                    {recognitionTimer}s
+                  </Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -698,6 +780,7 @@ export default function GameScreen({ navigation, route }: Props) {
         </Modal>
       </View>
       
+      {/* Game Over модаль */}
       <Modal
         visible={gameState.isGameOver}
         transparent={true}
@@ -740,6 +823,15 @@ export default function GameScreen({ navigation, route }: Props) {
           </View>
         </View>
       </Modal>
+
+      {/* ✨ Оверлей режима разгадывания */}
+    <RecognitionModeOverlay
+      isVisible={recognitionModeActive}
+      board={recognitionBoard}
+      timerRemaining={recognitionTimer}
+      onClose={handleRecognitionClose}
+      onTimerTick={() => setRecognitionTimer(4)}
+    />
     </ImageBackground>
   );
 }
