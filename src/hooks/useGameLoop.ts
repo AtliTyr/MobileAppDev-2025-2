@@ -1,4 +1,4 @@
-// hooks/useGameLoop.ts
+// hooks/useGameLoop.ts - ОБНОВЛЕНО: убрана старая логика приземления
 
 import { useEffect, useRef, useCallback } from 'react';
 import { GameState } from '../types/game';
@@ -12,7 +12,6 @@ export const useGameLoop = ({ gameState, onTick }: GameLoopProps) => {
   const lastTickTime = useRef(0);
   const animationFrameId = useRef<number | null>(null);
   const isRunningRef = useRef(true);
-
   const onTickRef = useRef(onTick);
   const isPausedRef = useRef(gameState.isPaused);
   const isGameOverRef = useRef(gameState.isGameOver);
@@ -56,7 +55,6 @@ export const useGameLoop = ({ gameState, onTick }: GameLoopProps) => {
     return () => {
       console.log('⏹️ useGameLoop размонтируется, ОСТАНАВЛИВАЕМ цикл');
       isRunningRef.current = false;
-      
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
         animationFrameId.current = null;
