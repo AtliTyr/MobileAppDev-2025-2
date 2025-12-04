@@ -76,7 +76,7 @@ export default function GameScreen({ navigation, route }: Props) {
 
   // ✨ Новое: состояние режима разгадывания
   const [recognitionModeActive, setRecognitionModeActive] = useState(false);
-  const [recognitionTimer, setRecognitionTimer] = useState(4);
+  const [recognitionTimer, setRecognitionTimer] = useState(120);
   const [selectedPath, setSelectedPath] = useState<LetterPosition[]>([]);
 
   // ========================================
@@ -511,7 +511,7 @@ export default function GameScreen({ navigation, route }: Props) {
   const handleActivateRecognitionMode = () => {
     if (gameState.isGameOver || recognitionModeActive) return;
     console.log('🔍 Активируем режим разгадывания');
-    setRecognitionTimer(4);
+    setRecognitionTimer(120);
     setRecognitionModeActive(true);
     actions.pause();
     stopBackgroundMusic();
@@ -825,13 +825,13 @@ export default function GameScreen({ navigation, route }: Props) {
       </Modal>
 
       {/* ✨ Оверлей режима разгадывания */}
-    <RecognitionModeOverlay
-      isVisible={recognitionModeActive}
-      board={recognitionBoard}
-      timerRemaining={recognitionTimer}
-      onClose={handleRecognitionClose}
-      onTimerTick={() => setRecognitionTimer(4)}
-    />
+      <RecognitionModeOverlay
+        isVisible={recognitionModeActive}
+        board={recognitionBoard}
+        timerRemaining={recognitionTimer}
+        onClose={handleRecognitionClose}
+        onTimerTick={() => setRecognitionTimer(120)}
+      />
     </ImageBackground>
   );
 }

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  GestureResponderEvent,
+  PanResponder,
+  PanResponderInstance,
+  View as RNView,
 } from 'react-native';
 import { useWordRecognition, LetterPosition } from '../hooks/useWordRecognition';
 
@@ -23,6 +24,7 @@ interface RecognitionModeOverlayProps {
   onTimerTick: () => void;
 }
 
+// Размер ячейки: ИСПОЛЬЗУЕМ и для верстки, и для расчёта координат
 const CELL_SIZE = 30;
 
 export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
@@ -32,7 +34,6 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
   onClose,
   onTimerTick,
 }) => {
-  // Подстраховка от undefined
   const safeBoard: Board = Array.isArray(board) ? board : [];
 
   const {
@@ -40,81 +41,62 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
     addToPath,
     getPath,
     clearPath,
-  } = useWordRecognition(safeBoard);  // путь хранится внутри хука [file:53]
+  } = useWordRecognition(safeBoard); // твой хук [file:69]
 
+  const [path, setPath] = useState<LetterPosition[]>([]);
+  const [isSwiping, setIsSwiping] = useState(false);
+
+  const boardRef = useRef<RNView | null>(null);
+  // Позиция борда на экране (координаты левого верхнего угла)
+  const boardOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Чтобы не дёргать measure слишком рано
+  const boardMeasuredRef = useRef(false);
+
+  const lastCellRef = useRef<{ row: number; col: number } | null>(null);
+
+  // Сброс пути при скрытии оверлея
   useEffect(() => {
     if (!isVisible) {
-      // Любое скрытие — сбрасываем слово
       clearPath();
       setPath([]);
+      setIsSwiping(false);
+      lastCellRef.current = null;
       console.log('🔄 Overlay скрыт, путь сброшен');
     }
-  }, [isVisible, clearPath]);  
+  }, [isVisible, clearPath]);
 
-  // Локальное состояние пути для подсветки и синхронной логики
-  const [path, setPath] = useState<LetterPosition[]>([]);
+  // Замеряем позицию борда на экране (глобальные координаты)
+  const measureBoardPosition = () => {
+    if (!boardRef.current) return;
 
-  const handleBoardTouch = (event: GestureResponderEvent) => {
-    const { locationX, locationY } = event.nativeEvent;
-    const boardX = Math.floor(locationX / CELL_SIZE);
-    const boardY = Math.floor(locationY / CELL_SIZE);
+    boardRef.current.measureInWindow((x, y, width, height) => {
+      boardOffsetRef.current = { x, y };
+      boardMeasuredRef.current = true;
+      console.log('📐 BOARD OFFSET', { x, y, width, height });
+    });
+  };
 
-    console.log('tap', boardX, boardY, safeBoard[boardY]?.[boardX]);
+  const getCellFromPoint = (x: number, y: number): { row: number; col: number } | null => {
+    const rows = safeBoard.length;
+    const cols = rows > 0 ? safeBoard[0].length : 0;
+    if (!rows || !cols) return null;
 
-    if (
-      boardY < 0 ||
-      boardY >= safeBoard.length ||
-      boardX < 0 ||
-      boardX >= safeBoard[boardY].length
-    ) {
-      return;
-    }
+    const col = Math.floor(x / CELL_SIZE);
+    const row = Math.floor(y / CELL_SIZE);
 
-    const currentPath = getPath();
-    const currentLen = currentPath.length;
-
-    if (currentLen === 0) {
-      startPath(boardX, boardY);
-      const newPath = getPath();
-      if (newPath.length > 0) {
-        setPath(newPath);
-        onTimerTick(); // первая буква — слово расширилось
-        if (newPath.length > 0) {
-          console.log('PATH NOW:', newPath.map(p => `${p.letter}@${p.x},${p.y}`).join(' '));
-        }
-      }
-      return;
-    }
-
-    const lastPos = currentPath[currentPath.length - 1];
-    if (lastPos.x === boardX && lastPos.y === boardY) {
-      return;
-    }
-
-    const added = addToPath(boardX, boardY);
-    if (added) {
-      const newPath = getPath();
-      setPath(newPath);
-      if (newPath.length > currentLen) {
-        onTimerTick(); // слово стало длиннее — обновляем таймер
-      }
-    }
+    if (col < 0 || col >= cols || row < 0 || row >= rows) return null;
+    return { row, col };
   };
 
   const handleCellTouch = (rowIndex: number, colIndex: number) => {
     const boardX = colIndex;
     const boardY = rowIndex;
+    const cell = safeBoard[boardY]?.[boardX];
 
-    console.log('cell tap', boardX, boardY, safeBoard[boardY]?.[boardX]);
+    console.log('cell', boardX, boardY, cell);
 
-    if (
-      boardY < 0 ||
-      boardY >= safeBoard.length ||
-      boardX < 0 ||
-      boardX >= safeBoard[boardY].length
-    ) {
-      return;
-    }
+    if (!cell || !cell.letter) return;
 
     const currentPath = getPath();
     const currentLen = currentPath.length;
@@ -123,10 +105,7 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
       const newPath = startPath(boardX, boardY);
       if (newPath.length > 0) {
         setPath(newPath);
-        onTimerTick(); // всегда тикаем на первую букву
-        console.log(
-          `🔤 Путь начинается с: ${newPath[0].letter} (${boardX}, ${boardY})`
-        );
+        onTimerTick();
       }
       return;
     }
@@ -139,41 +118,80 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
     const newPath = addToPath(boardX, boardY);
     if (newPath && newPath.length > currentLen) {
       setPath(newPath);
-      onTimerTick(); // слово реально удлинилось — обновляем таймер
-      console.log(
-        'PATH NOW:',
-        newPath.map(p => `${p.letter}@${p.x},${p.y}`).join(' ')
-      );
+      onTimerTick();
     }
   };
 
+  const handlePointFromEvent = (evt: any) => {
+    const { pageX, pageY } = evt.nativeEvent; // глобальные координаты касания [web:76]
+    const { x: boardX, y: boardY } = boardOffsetRef.current;
 
-
-  const finishAndClose = () => {
-    if (path.length === 0) {
-      onClose('');
+    // Если по каким-то причинам ещё не замерили борд — попробуем замерить сейчас
+    if (!boardMeasuredRef.current) {
+      console.log('⚠️ board not measured yet, measuring on the fly');
+      measureBoardPosition();
       return;
     }
-    const word = path.map(p => p.letter).join('');
-    console.log('📝 Составленное слово:', word);
-    onClose(word);
+
+    // Координаты касания в системе борда
+    const relX = pageX - boardX;
+    const relY = pageY - boardY;
+
+    console.log('POINT', { pageX, pageY, relX, relY });
+
+    const cell = getCellFromPoint(relX, relY);
+    console.log('HIT CELL', cell);
+
+    if (!cell) return;
+
+    const last = lastCellRef.current;
+    if (last && last.row === cell.row && last.col === cell.col) {
+      return;
+    }
+    lastCellRef.current = cell;
+
+    handleCellTouch(cell.row, cell.col);
+  };
+
+  const finishAndClose = () => {
+    const finalPath = getPath();
+    if (!finalPath.length) {
+      onClose('');
+    } else {
+      const word = finalPath.map(p => p.letter).join('');
+      console.log('📝 Слово из режима разгадывания:', word);
+      onClose(word);
+    }
     clearPath();
     setPath([]);
+    setIsSwiping(false);
+    lastCellRef.current = null;
   };
 
-
-  const handleTouchEnd = () => {
-    finishAndClose();
-  };
-
-  const handleClearPath = () => {
-    clearPath();
-    setPath([]);
-  };
-
-  const handleExit = () => {
-    finishAndClose();
-  };
+  // Создаём PanResponder на каждый рендер, чтобы коллбеки видели актуальный стейт [web:79]
+  const panResponder: PanResponderInstance = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: e => {
+      console.log('grant');
+      setIsSwiping(true);
+      clearPath();
+      setPath([]);
+      lastCellRef.current = null;
+      handlePointFromEvent(e); // опорная буква по нажатию
+    },
+    onPanResponderMove: e => {
+      if (!isSwiping) return;
+      handlePointFromEvent(e); // расширение слова при движении
+    },
+    onPanResponderRelease: () => {
+      console.log('release');
+      finishAndClose();
+    },
+    onPanResponderTerminate: () => {
+      finishAndClose();
+    },
+  });
 
   if (!isVisible) return null;
 
@@ -201,7 +219,15 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
 
       {/* Доска с буквами */}
       <View style={styles.boardContainer}>
-        <View style={styles.board}>
+        <View
+          style={styles.board}
+          ref={boardRef}
+          onLayout={() => {
+            console.log('BOARD onLayout -> measure');
+            measureBoardPosition();
+          }}
+          {...panResponder.panHandlers}
+        >
           {safeBoard.map((row, rowIndex) => (
             <View key={rowIndex} style={styles.boardRow}>
               {row.map((cell, colIndex) => {
@@ -211,34 +237,29 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
                 const isInPath = pathIndex !== -1;
 
                 return (
-                  <TouchableOpacity
+                  <View
                     key={colIndex}
-                    activeOpacity={0.7}
-                    onPress={() => handleCellTouch(rowIndex, colIndex)}
+                    style={[
+                      styles.cell,
+                      isInPath && styles.cellSelected,
+                    ]}
                   >
-                    <View
+                    <Text
                       style={[
-                        styles.cell,
-                        isInPath && styles.cellSelected,
+                        styles.cellText,
+                        isInPath && styles.cellTextSelected,
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.cellText,
-                          isInPath && styles.cellTextSelected,
-                        ]}
-                      >
-                        {cell.letter}
-                      </Text>
-                      {isInPath && (
-                        <View style={styles.pathNumber}>
-                          <Text style={styles.pathNumberText}>
-                            {pathIndex + 1}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
+                      {cell.letter}
+                    </Text>
+                    {isInPath && (
+                      <View style={styles.pathNumber}>
+                        <Text style={styles.pathNumberText}>
+                          {pathIndex + 1}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 );
               })}
             </View>
@@ -246,27 +267,11 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
         </View>
       </View>
 
-      {/* Информация о составленном слове */}
+      {/* Информация о слове */}
       <View style={styles.infoContainer}>
         <Text style={styles.infoLabel}>Составленное слово:</Text>
         <Text style={styles.infoWord}>{composedWord || '(нет)'}</Text>
         <Text style={styles.infoCount}>Букв: {path.length}</Text>
-      </View>
-
-      {/* Кнопки управления */}
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.buttonSecondary]}
-          onPress={handleClearPath}
-        >
-          <Text style={styles.buttonText}>🗑️ Очистить</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.button, styles.buttonPrimary]}
-          onPress={handleExit}
-        >
-          <Text style={styles.buttonText}>👋 Выход</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -275,10 +280,7 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -286,9 +288,7 @@ const styles = StyleSheet.create({
   },
   header: {
     position: 'absolute',
-    top: 20,
-    left: 0,
-    right: 0,
+    top: 20, left: 0, right: 0,
     paddingVertical: 10,
     backgroundColor: 'rgba(33, 130, 208, 0.9)',
     justifyContent: 'center',
@@ -400,32 +400,5 @@ const styles = StyleSheet.create({
   infoCount: {
     fontSize: 11,
     color: 'rgba(255, 255, 255, 0.7)',
-  },
-  buttonsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    position: 'absolute',
-    bottom: 30,
-  },
-  button: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    minWidth: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonPrimary: {
-    backgroundColor: '#2182D0',
-  },
-  buttonSecondary: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-  },
-  buttonText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: 'white',
   },
 });
