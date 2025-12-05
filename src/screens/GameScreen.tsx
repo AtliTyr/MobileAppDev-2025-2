@@ -1,25 +1,5 @@
 /**
  * 🎮 GameScreen.tsx - Главный экран игры
- * 
- * ОСНОВНОЙ ФУНКЦИОНАЛ:
- * ✅ Отображение игровой доски и фигур
- * ✅ Управление игровым состоянием (play/pause/reset)
- * ✅ Обработка свайпов для управления фигурами
- * ✅ Таймер обратного отсчёта (3 сек) при загрузке/продолжении
- * ✅ БЛОКИРОВКА УПРАВЛЕНИЯ во время таймера
- * ✅ Показатели статистики (линии, уровень, очки)
- * ✅ Система сохранений и загрузки
- * ✅ Фоновая музыка и звуковые эффекты
- * ✅ Меню паузы и выхода
- * ✅ Debug панель для тестирования
- * 
- * НАВИГАЦИЯ:
- * - swipe back: открывает меню паузы
- * - Home: при выходе с сохранением
- * 
- * ЗВУК:
- * - Запускается музыка при старте игры
- * - Звуки для каждого действия (move, rotate, drop и т.д.)
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
@@ -34,10 +14,17 @@ import { useGamePersistence } from '../hooks/useGamePersistence';
 import { useAudioManager } from '../hooks/useAudioManager';
 import { RootStackParamList } from '../../App';
 import { CommonActions } from '@react-navigation/native';
-
-// ✨ Новое: режим разгадывания
 import { RecognitionModeOverlay } from '../components/RecognitionModeOverlay';
 import type { LetterPosition } from '../hooks/useWordRecognition';
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  WordSet,
+  WordData,
+  builtInWordSets,
+  STORAGE_FOUND_WORDS,
+} from '../types/wordSets';
+import WordCard from '../components/WordCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
@@ -46,16 +33,9 @@ export default function GameScreen({ navigation, route }: Props) {
   // 🔧 ИНИЦИАЛИЗАЦИЯ
   // ========================================
 
-  /**
-   * Получаем сохранённые данные если есть
-   * Используются для восстановления игры в том же состоянии
-   */
   const savedGameData = route.params?.savedGameData;
+  const routeWordSetId = route.params?.wordSetId;
 
-  /**
-   * Инициализируем игровое состояние
-   * Если есть сохранение - загружаем его, иначе - новая игра
-   */
   const { gameState, actions } = useGameState(
     savedGameData?.config,
     savedGameData?.gameState
@@ -65,7 +45,7 @@ export default function GameScreen({ navigation, route }: Props) {
   const { playSound, playBackgroundMusic, stopBackgroundMusic } = useAudioManager();
 
   // ========================================
-  // 📦 СОСТОЯНИЕ КОМПОНЕНТА
+  // 📦 СОСТОЯНИЕ
   // ========================================
 
   const [showDebug, setShowDebug] = useState(false);
@@ -74,63 +54,98 @@ export default function GameScreen({ navigation, route }: Props) {
   const [countdownTime, setCountdownTime] = useState<number | null>(null);
   const [isControlsDisabled, setIsControlsDisabled] = useState(false);
 
-  // ✨ Новое: состояние режима разгадывания
   const [recognitionModeActive, setRecognitionModeActive] = useState(false);
   const [recognitionTimer, setRecognitionTimer] = useState(120);
   const [selectedPath, setSelectedPath] = useState<LetterPosition[]>([]);
 
+  // ✨ Наборы слов
+  const [currentWordSet, setCurrentWordSet] = useState<WordSet | null>(null);
+  const [foundIds, setFoundIds] = useState<string[]>([]);
+  const [currentTargetWord, setCurrentTargetWord] = useState<string | null>(
+    savedGameData?.currentTargetWord ?? null
+  );
+  const [currentTargetId, setCurrentTargetId] = useState<string | null>(
+    savedGameData?.currentTargetId ?? null
+  );
+
+
+  // ✨ Карточка только что найденного слова
+  const [justFoundWord, setJustFoundWord] = useState<WordData | null>(null);
+  const [justFoundVisible, setJustFoundVisible] = useState(false);
+
   // ========================================
-  // 📍 REF ПЕРЕМЕННЫЕ (не перерендеривают)
+  // 📍 REFS
   // ========================================
 
-  /**
-   * countdownIntervalRef - ссылка на interval таймера
-   * 
-   * ЗАЧЕМ НУЖНА:
-   * - Чтобы остановить таймер при размонтировании
-   * - Чтобы не создавать множество интервалов если startCountdown вызывается много раз
-   */
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  /**
-   * backgroundMusicStartedRef - флаг что музыка была запущена
-   * 
-   * ЗАЧЕМ НУЖНА:
-   * - Предотвращает множественный запуск музыки
-   * - playBackgroundMusic может быть вызвана много раз
-   * - Этот флаг гарантирует что музыка запустится только один раз
-   */
   const backgroundMusicStartedRef = useRef(false);
-
-  /**
-   * stateRef - ссылка на текущее состояние управления
-   * 
-   * ЗАЧЕМ НУЖНА:
-   * - useTouchGameControls нужно знать актуальное значение isControlsDisabled и isPaused
-   * - Если использовать напрямую состояние, обработчики работают с "замороженным" состоянием
-   * - stateRef синхронизируется с текущим состоянием в useEffect
-   */
   const stateRef = useRef({ isControlsDisabled, isPaused: gameState.isPaused });
+
+  // ========================================
+  // 🧩 РАБОТА С НАБОРОМ СЛОВ
+  // ========================================
+
+  const chooseNextTarget = (set: WordSet, found: string[]) => {
+    const candidates = set.words.filter(w => !found.includes(w.id));
+    if (candidates.length === 0) {
+      console.log('✅ Все слова в наборе найдены');
+      setCurrentTargetWord(null);
+      setCurrentTargetId(null);
+      return;
+    }
+    const random = candidates[Math.floor(Math.random() * candidates.length)];
+    setCurrentTargetWord(random.word.toUpperCase());
+    setCurrentTargetId(random.id);
+    console.log('🎯 Новая цель:', random.word, 'id=', random.id);
+  };
+
+  useEffect(() => {
+    const initWordSet = async () => {
+      try {
+        const fromRoute = routeWordSetId;
+        const fromSave = savedGameData?.wordSetId;
+        const setId = fromRoute ?? fromSave;
+        if (!setId) {
+          console.log('⚠️ wordSetId не передан в GameScreen');
+          setCurrentWordSet(null);
+          return;
+        }
+
+        const set = builtInWordSets.find(s => s.id === setId);
+        if (!set) {
+          console.log('⚠️ Набор не найден по id:', setId);
+          setCurrentWordSet(null);
+          return;
+        }
+
+        setCurrentWordSet(set);
+
+        const raw = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
+        const parsed: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+        const alreadyFound = parsed[set.id] ?? [];
+        setFoundIds(alreadyFound);
+
+        // Если в сохранении уже есть цель — оставляем её.
+        if (savedGameData?.currentTargetWord && savedGameData?.currentTargetId) {
+          console.log('🎯 Восстанавливаем сохранённую цель:', savedGameData.currentTargetWord);
+          return;
+        }
+
+        // Иначе выбираем новую цель из ещё не найденных
+        chooseNextTarget(set, alreadyFound);
+      } catch (e) {
+        console.log('Ошибка инициализации набора слов в GameScreen', e);
+      }
+    };
+
+    initWordSet();
+  }, [routeWordSetId, savedGameData]);
+
 
   // ========================================
   // ⏱️ ТАЙМЕР ОБРАТНОГО ОТСЧЁТА
   // ========================================
 
-  /**
-   * startCountdown - запускает таймер обратного отсчёта
-   * 
-   * ПРОЦЕСС:
-   * 1. Блокируем управление (isControlsDisabled = true)
-   * 2. Показываем оверлей с числом
-   * 3. Каждую секунду уменьшаем число на 1
-   * 4. При достижении 0:
-   *    - Разблокируем управление
-   *    - Скрываем оверлей
-   *    - Возобновляем игру
-   *    - Запускаем фоновую музыку
-   * 
-   * ⭐ КРИТИЧНО: таймер ДОЛЖЕН остановить блокировку управления!
-   */
   const startCountdown = useCallback((duration: number = 3) => {
     console.log(`⏱️ Таймер начат на ${duration} сек, isControlsDisabled = true`);
 
@@ -171,59 +186,45 @@ export default function GameScreen({ navigation, route }: Props) {
   }, [actions, playBackgroundMusic]);
 
   // ========================================
-  // 🧹 CLEANUP ПРИ РАЗМОНТИРОВАНИИ
+  // 🧹 CLEANUP
   // ========================================
 
-  /**
-   * Очищаем ресурсы когда компонент размонтируется
-   * - Останавливаем таймер
-   * - Останавливаем музыку
-   * - Разблокируем управление
-   */
   useEffect(() => {
     return () => {
       console.log('🧹 GameScreen размонтируется - ПОЛНАЯ ОЧИСТКА');
-      
+
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
       }
-      
+
       stopBackgroundMusic();
-      
+
       try {
         actions.pause();
-      } catch (e) {
+      } catch {
         console.log('⚠️ actions уже недоступны при cleanup');
       }
-      
+
       setIsControlsDisabled(false);
-      
+
       console.log('✅ Cleanup завершён');
     };
   }, [stopBackgroundMusic]);
 
   // ========================================
-  // 🔄 ОБНОВЛЕНИЕ STATE REF
+  // 🔄 ОБНОВЛЕНИЕ stateRef
   // ========================================
 
-  /**
-   * Синхронизируем stateRef с текущим состоянием
-   * Нужно чтобы обработчики свайпов имели актуальные значения
-   */
   useEffect(() => {
     stateRef.current = { isControlsDisabled, isPaused: gameState.isPaused };
   }, [isControlsDisabled, gameState.isPaused]);
 
   // ========================================
-  // 🚫 БЛОКИРОВКА SWIPE BACK
+  // 🚫 SWIPE BACK
   // ========================================
 
-  /**
-   * Слушаем попытки навигации (свайп назад)
-   * Если это GO_BACK - открываем меню паузы вместо выхода
-   */
-  React.useEffect(() => {
+  useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       if (e.data.action.type === 'GO_BACK') {
         e.preventDefault();
@@ -231,19 +232,13 @@ export default function GameScreen({ navigation, route }: Props) {
       }
     });
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, gameState.isPaused, showPauseMenu, isControlsDisabled]);
 
   // ========================================
-  // 📱 ИНИЦИАЛИЗАЦИЯ ЭКРАНА
+  // 📱 ИНИЦИАЛИЗАЦИЯ
   // ========================================
 
-  /**
-   * При загрузке GameScreen:
-   * - Ставим игру на паузу
-   * - Запускаем таймер обратного отсчёта
-   * - Сбрасываем флаг музыки если это новая игра (не сохранение)
-   */
-  React.useEffect(() => {
+  useEffect(() => {
     console.log('📱 GameScreen загружен, ставим паузу и запускаем таймер');
     actions.pause();
     startCountdown(3);
@@ -272,15 +267,10 @@ export default function GameScreen({ navigation, route }: Props) {
     return () => clearInterval(id);
   }, [recognitionModeActive, actions, playBackgroundMusic]);
 
-
   // ========================================
-  // 👆 ОБРАБОТКА СВАЙПОВ
+  // 👆 СВАЙПЫ
   // ========================================
 
-  /**
-   * touchControls из useTouchGameControls
-   * Преобразует сырые свайпы в игровые действия
-   */
   const touchControls = useTouchGameControls({
     onMoveLeft: () => {
       const state = stateRef.current;
@@ -310,7 +300,7 @@ export default function GameScreen({ navigation, route }: Props) {
         actions.hardDrop();
       }
     },
-    onSoftDrop: (speed: number) => {
+    onSoftDrop: () => {
       const state = stateRef.current;
       if (!state.isControlsDisabled && !state.isPaused) {
         playSound('move');
@@ -320,12 +310,9 @@ export default function GameScreen({ navigation, route }: Props) {
   });
 
   // ========================================
-  // 🎮 ОБРАБОТЧИКИ ДЕЙСТВИЙ
+  // 🎮 ОБРАБОТЧИКИ
   // ========================================
 
-  /**
-   * handlePause - переключение между паузой и игрой
-   */
   const handlePause = () => {
     if (gameState.isPaused && showPauseMenu) {
       setShowPauseMenu(false);
@@ -338,9 +325,6 @@ export default function GameScreen({ navigation, route }: Props) {
     }
   };
 
-  /**
-   * handleHold - удержание текущей фигуры
-   */
   const handleHold = () => {
     if (!isControlsDisabled && !gameState.isPaused) {
       playSound('hold');
@@ -348,9 +332,6 @@ export default function GameScreen({ navigation, route }: Props) {
     }
   };
 
-  /**
-   * handleRestart - перезагрузка игры
-   */
   const handleRestart = async () => {
     playSound('game_over');
     actions.restart();
@@ -361,151 +342,99 @@ export default function GameScreen({ navigation, route }: Props) {
     startCountdown(3);
   };
 
-  /**
-   * handleExitRequest - запрос выхода (показать диалог сохранения)
-   */
   const handleExitRequest = () => {
-    // Если game over - идём прямо в меню БЕЗ диалога
     if (gameState.isGameOver) {
       handleQuickExit();
     } else {
-      // Если пауза - показываем диалог сохранения
       setShowExitConfirm(true);
     }
   };
 
-  /**
-   * handleExitWithSave - выход с сохранением
-   */
+  const goHomeReset = () => {
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      })
+    );
+  };
+
   const handleExitWithSave = async () => {
-    console.log('🚪 ФИНАЛЬНЫЙ выход с сохранением - сбрасываем всё');
-    
-    // 1. СРАЗУ останавливаем игру
+    console.log('🚪 Выход с сохранением');
     actions.pause();
-    
-    // 2. Останавливаем музыку
     stopBackgroundMusic();
-    
-    // 3. СОХРАНЯЕМ перед сбросом
-    await saveGame(gameState);
-    
-    // 4. ПЕРЕЗАГРУЖАЕМ ИГРУ ПОЛНОСТЬЮ
+    const wordSetId = currentWordSet?.id;
+
+    await saveGame(
+      gameState,
+      wordSetId,
+      currentTargetWord,
+      currentTargetId
+    );
+
     actions.restart();
-    
-    // 5. Закрываем все модали
+
     setShowExitConfirm(false);
     setShowPauseMenu(false);
     setCountdownTime(null);
     setShowDebug(false);
     setIsControlsDisabled(false);
-    
-    // 6. Очищаем таймер
+
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
     }
-    
-    // 7. Сбрасываем флаг музыки
+
     backgroundMusicStartedRef.current = false;
-    
-    // 8. ТОЛЬКО ПОТОМ идём в меню
-    console.log('✅ Полностью готово, идём в главное меню');
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      })
-    );
+    goHomeReset();
   };
 
-  /**
-   * handleExitWithoutSave - выход без сохранения
-   */
   const handleExitWithoutSave = async () => {
-    console.log('🚪 ФИНАЛЬНЫЙ выход без сохранения - сбрасываем всё');
-    
-    // 1. СРАЗУ останавливаем игру
+    console.log('🚪 Выход без сохранения');
     actions.pause();
-    
-    // 2. Останавливаем музыку
     stopBackgroundMusic();
-    
-    // 3. Очищаем сохранение
     await clearSavedGame();
-    
-    // 4. ПЕРЕЗАГРУЖАЕМ ИГРУ ПОЛНОСТЬЮ
     actions.restart();
-    
-    // 5. Закрываем все модали
+
     setShowExitConfirm(false);
     setShowPauseMenu(false);
     setCountdownTime(null);
     setShowDebug(false);
     setIsControlsDisabled(false);
-    
-    // 6. Очищаем таймер
+
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
     }
-    
-    // 7. Сбрасываем флаг музыки
+
     backgroundMusicStartedRef.current = false;
-    
-    // 8. ТОЛЬКО ПОТОМ идём в меню
-    console.log('✅ Полностью готово, идём в главное меню');
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      })
-    );
+    goHomeReset();
   };
 
-  // Быстрый выход в меню (для game over - без диалога)
   const handleQuickExit = async () => {
-    console.log('🚪 ФИНАЛЬНЫЙ выход - сбрасываем всё');
-    
-    // 1. СРАЗУ останавливаем игру
+    console.log('🚪 Быстрый выход (game over)');
     actions.pause();
-    
-    // 2. Останавливаем музыку
     stopBackgroundMusic();
-    
-    // 3. Очищаем сохранение
     await clearSavedGame();
-    
-    // 4. ПЕРЕЗАГРУЖАЕМ ИГРУ ПОЛНОСТЬЮ (это сбросит весь gameState)
     actions.restart();
-    
-    // 5. Закрываем все модали
+
     setShowExitConfirm(false);
     setShowPauseMenu(false);
     setCountdownTime(null);
     setShowDebug(false);
     setIsControlsDisabled(false);
-    
-    // 6. Очищаем таймер
+
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
     }
-    
-    // 7. Сбрасываем флаг музыки
+
     backgroundMusicStartedRef.current = false;
-    
-    // 8. ТОЛЬКО ПОТОМ идём в меню
-    console.log('✅ Полностью готово, идём в главное меню');
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      })
-    );
+    goHomeReset();
   };
 
   // ========================================
-  // ✨ РЕЖИМ РАЗГАДЫВАНИЯ
+  // ✨ РЕЖИМ РАЗГАДЫВАНИЯ + ПРОГРЕСС СЛОВ
   // ========================================
 
   const handleActivateRecognitionMode = () => {
@@ -517,11 +446,48 @@ export default function GameScreen({ navigation, route }: Props) {
     stopBackgroundMusic();
   };
 
-  const handleRecognitionClose = (word: string) => {
+  const handleRecognitionClose = async (word: string) => {
     console.log('📝 Слово из режима разгадывания:', word);
     setRecognitionModeActive(false);
 
     const trimmed = word.trim();
+    const upper = trimmed.toUpperCase();
+
+    let success = false;
+    let unlockedWord: WordData | null = null;
+
+    if (currentTargetWord && upper === currentTargetWord && currentWordSet && currentTargetId) {
+      success = true;
+      unlockedWord = currentWordSet.words.find(w => w.id === currentTargetId) ?? null;
+      console.log('🎯 Совпадение с целью!');
+    } else {
+      console.log('❌ Не совпало с целью. target =', currentTargetWord, 'word =', upper);
+    }
+
+    if (success && currentWordSet && currentTargetId) {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
+        const parsed: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+        const list = parsed[currentWordSet.id] ?? [];
+        if (!list.includes(currentTargetId)) {
+          const updated = [...list, currentTargetId];
+          parsed[currentWordSet.id] = updated;
+          await AsyncStorage.setItem(STORAGE_FOUND_WORDS, JSON.stringify(parsed));
+          setFoundIds(updated);
+          console.log('💾 Слово добавлено в найденные:', currentTargetId);
+        }
+        chooseNextTarget(currentWordSet, parsed[currentWordSet.id]);
+
+        // показать карточку только что открытого слова
+        if (unlockedWord) {
+          setJustFoundWord(unlockedWord);
+          setJustFoundVisible(true);
+        }
+      } catch (e) {
+        console.log('Ошибка сохранения найденного слова', e);
+      }
+    }
+
     if (trimmed.length > 0) {
       actions.addWord();
       if (trimmed.length > 2) {
@@ -532,8 +498,9 @@ export default function GameScreen({ navigation, route }: Props) {
     actions.resume();
     playBackgroundMusic();
   };
+
   // ========================================
-  // 🐛 DEBUG ДЕЙСТВИЯ
+  // 🐛 DEBUG
   // ========================================
 
   const debugActions = {
@@ -557,7 +524,6 @@ export default function GameScreen({ navigation, route }: Props) {
     spawnNew: () => actions.spawnNew(),
   };
 
-  // Доска для режима разгадывания: ТОЛЬКО статичные буквы
   const recognitionBoard = React.useMemo(() => {
     return gameState.board.map(row =>
       row.map(cell => ({
@@ -593,6 +559,12 @@ export default function GameScreen({ navigation, route }: Props) {
           <View style={statPanel.box}>
             <Text style={statPanel.label}>ОЧКИ</Text>
             <Text style={statPanel.value}>{gameState.score}</Text>
+          </View>
+          <View style={statPanel.box}>
+            <Text style={statPanel.label}>ЦЕЛЬ</Text>
+            <Text style={statPanel.value}>
+              {currentTargetWord ?? '—'}
+            </Text>
           </View>
         </View>
 
@@ -647,7 +619,6 @@ export default function GameScreen({ navigation, route }: Props) {
               </View>
             </View>
 
-            {/* ✨ Новая секция: режим слова */}
             <View style={gameArea.section}>
               <TouchableOpacity
                 onPress={handleActivateRecognitionMode}
@@ -725,7 +696,7 @@ export default function GameScreen({ navigation, route }: Props) {
         {/* Меню паузы */}
         <Modal
           visible={showPauseMenu}
-          transparent={true}
+          transparent
           animationType="fade"
         >
           <View style={pauseMenu.overlay}>
@@ -754,7 +725,7 @@ export default function GameScreen({ navigation, route }: Props) {
         {/* Диалог выхода */}
         <Modal
           visible={showExitConfirm}
-          transparent={true}
+          transparent
           animationType="fade"
         >
           <View style={exitConfirmModal.overlay}>
@@ -772,48 +743,51 @@ export default function GameScreen({ navigation, route }: Props) {
                 <Text style={exitConfirmModal.buttonText}>ВЫЙТИ БЕЗ СОХРАНЕНИЯ</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={exitConfirmModal.cancelButton} onPress={() => setShowExitConfirm(false)}>
+              <TouchableOpacity
+                style={exitConfirmModal.cancelButton}
+                onPress={() => setShowExitConfirm(false)}
+              >
                 <Text style={exitConfirmModal.cancelButtonText}>ОТМЕНА</Text>
               </TouchableOpacity>
             </View>
           </View>
         </Modal>
       </View>
-      
-      {/* Game Over модаль */}
+
+      {/* Game Over */}
       <Modal
         visible={gameState.isGameOver}
-        transparent={true}
+        transparent
         animationType="fade"
       >
         <View style={gameOverModal.overlay}>
           <View style={gameOverModal.container}>
             <Text style={gameOverModal.title}>ИГРА ОКОНЧЕНА</Text>
-            
+
             <View style={gameOverModal.statsContainer}>
               <View style={gameOverModal.statRow}>
                 <Text style={gameOverModal.statLabel}>ОЧКИ:</Text>
                 <Text style={gameOverModal.statValue}>{gameState.score}</Text>
               </View>
-              
+
               <View style={gameOverModal.statRow}>
                 <Text style={gameOverModal.statLabel}>УРОВЕНЬ:</Text>
                 <Text style={gameOverModal.statValue}>{gameState.level}</Text>
               </View>
-              
+
               <View style={gameOverModal.statRow}>
                 <Text style={gameOverModal.statLabel}>ЛИНИИ:</Text>
                 <Text style={gameOverModal.statValue}>{gameState.linesCleared}</Text>
               </View>
             </View>
-            
+
             <TouchableOpacity
               style={gameOverModal.button}
               onPress={handleRestart}
             >
               <Text style={gameOverModal.buttonText}>ИГРАТЬ ЗАНОВО</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               style={gameOverModal.cancelButton}
               onPress={handleExitRequest}
@@ -824,7 +798,17 @@ export default function GameScreen({ navigation, route }: Props) {
         </View>
       </Modal>
 
-      {/* ✨ Оверлей режима разгадывания */}
+      {/* Карточка только что найденного слова */}
+      <WordCard
+        visible={justFoundVisible}
+        word={justFoundWord}
+        onClose={() => {
+          setJustFoundVisible(false);
+          setJustFoundWord(null);
+        }}
+      />
+
+      {/* Режим разгадывания */}
       <RecognitionModeOverlay
         isVisible={recognitionModeActive}
         board={recognitionBoard}

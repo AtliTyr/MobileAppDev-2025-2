@@ -12,11 +12,23 @@ import { GameState, GameConfig } from './src/types/game';
 
 export type RootStackParamList = {
   Home: undefined;
-  Game: { savedGameData?: { gameState: GameState; config: GameConfig } } | undefined;
+  Game:
+    | {
+        savedGameData?: {
+          gameState: GameState;
+          config: GameConfig;
+          wordSetId?: string;
+          currentTargetWord?: string | null;
+          currentTargetId?: string | null;
+        };
+        wordSetId?: string;
+      }
+    | undefined;
   Instructions: undefined;
   Dictionary: undefined;
   Settings: undefined;
 };
+
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 

@@ -77,16 +77,32 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
     });
   };
 
-  const getCellFromPoint = (x: number, y: number): { row: number; col: number } | null => {
+  const HIT_RADIUS = CELL_SIZE * 0.6; // 60% от клетки
+
+  const getCellFromPoint = (x: number, y: number) => {
     const rows = safeBoard.length;
     const cols = rows > 0 ? safeBoard[0].length : 0;
     if (!rows || !cols) return null;
 
-    const col = Math.floor(x / CELL_SIZE);
-    const row = Math.floor(y / CELL_SIZE);
+    const approxCol = Math.round((x - CELL_SIZE / 2) / CELL_SIZE);
+    const approxRow = Math.round((y - CELL_SIZE / 2) / CELL_SIZE);
 
-    if (col < 0 || col >= cols || row < 0 || row >= rows) return null;
-    return { row, col };
+    if (approxCol < 0 || approxCol >= cols || approxRow < 0 || approxRow >= rows) {
+      return null;
+    }
+
+    const centerX = approxCol * CELL_SIZE + CELL_SIZE / 2;
+    const centerY = approxRow * CELL_SIZE + CELL_SIZE / 2;
+    const dx = x - centerX;
+    const dy = y - centerY;
+    const dist2 = dx * dx + dy * dy;
+
+    if (dist2 > HIT_RADIUS * HIT_RADIUS) {
+      // Слишком далеко от центра — считаем промахом, не двигаем путь
+      return null;
+    }
+
+    return { row: approxRow, col: approxCol };
   };
 
   const handleCellTouch = (rowIndex: number, colIndex: number) => {
