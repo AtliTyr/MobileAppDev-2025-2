@@ -1,4 +1,5 @@
 // src/types/wordSets.ts
+
 export type WordData = {
   id: string;
   word: string;
@@ -6,12 +7,15 @@ export type WordData = {
   description: string;
 };
 
+export type WordSetLanguage = 'ru' | 'en';
+
 export type WordSet = {
   id: string;
   name: string;
   description: string;
   totalWords: number;
   words: WordData[];
+  language: WordSetLanguage;
 };
 
 type FoundWordsBySet = {
@@ -27,11 +31,65 @@ export const builtInWordSets: WordSet[] = [
     name: 'Животные',
     description: 'Короткие слова о животных',
     totalWords: 4,
+    language: 'ru',
     words: [
-      { id: 'a1', word: 'КОТ',  translation: 'cat',  description: 'Домашнее животное, любит спать и мурлыкать.' },
-      { id: 'a2', word: 'ПЁС',  translation: 'dog',  description: 'Верный друг человека.' },
-      { id: 'a3', word: 'СОМ',  translation: 'catfish', description: 'Рыба с усами, живёт на дне.' },
-      { id: 'a4', word: 'КРОТ', translation: 'mole', description: 'Живёт под землёй и почти не видит.' },
+      {
+        id: 'a1',
+        word: 'КОТ',
+        translation: 'cat',
+        description: 'Домашнее животное, любит спать и мурлыкать.',
+      },
+      {
+        id: 'a2',
+        word: 'ПЁС',
+        translation: 'dog',
+        description: 'Верный друг человека.',
+      },
+      {
+        id: 'a3',
+        word: 'СОМ',
+        translation: 'catfish',
+        description: 'Рыба с усами, живёт на дне.',
+      },
+      {
+        id: 'a4',
+        word: 'КРОТ',
+        translation: 'mole',
+        description: 'Живёт под землёй и почти не видит.',
+      },
+    ],
+  },
+  {
+    id: 'animals_en',
+    name: 'Animals',
+    description: 'Short words with animals',
+    totalWords: 4,
+    language: 'en',
+    words: [
+      {
+        id: 'a1',
+        word: 'CAT',
+        translation: 'cat',
+        description: 'Домашнее животное, любит спать и мурлыкать.',
+      },
+      {
+        id: 'a2',
+        word: 'DOG',
+        translation: 'dog',
+        description: 'Верный друг человека.',
+      },
+      {
+        id: 'a3',
+        word: 'CATFISH',
+        translation: 'catfish',
+        description: 'Рыба с усами, живёт на дне.',
+      },
+      {
+        id: 'a4',
+        word: 'MOLE',
+        translation: 'mole',
+        description: 'Живёт под землёй и почти не видит.',
+      },
     ],
   },
   {
@@ -39,10 +97,27 @@ export const builtInWordSets: WordSet[] = [
     name: 'Еда',
     description: 'Базовые продукты питания',
     totalWords: 3,
+    language: 'ru',
     words: [
-      { id: 'f1', word: 'ХЛЕБ',  translation: 'bread',  description: 'Основной продукт питания во многих странах.' },
-      { id: 'f2', word: 'СЫР',   translation: 'cheese', description: 'Молочный продукт с разными вкусами и запахами.' },
-      { id: 'f3', word: 'СУП',   translation: 'soup',   description: 'Горячее первое блюдо.' },
+      {
+        id: 'f1',
+        word: 'ХЛЕБ',
+        translation: 'bread',
+        description: 'Основной продукт питания во многих странах.',
+      },
+      {
+        id: 'f2',
+        word: 'СЫР',
+        translation: 'cheese',
+        description:
+          'Молочный продукт с разными вкусами и запахами.',
+      },
+      {
+        id: 'f3',
+        word: 'СУП',
+        translation: 'soup',
+        description: 'Горячее первое блюдо.',
+      },
     ],
   },
   {
@@ -50,10 +125,29 @@ export const builtInWordSets: WordSet[] = [
     name: 'Школа',
     description: 'Слова из школьной тематики',
     totalWords: 3,
+    language: 'ru',
     words: [
-      { id: 's1', word: 'КЛАСС',   translation: 'class',    description: 'Группа учеников и аудитория для занятий.' },
-      { id: 's2', word: 'УРОК',    translation: 'lesson',   description: 'Отдельное занятие по предмету.' },
-      { id: 's3', word: 'ТЕТРАДЬ', translation: 'notebook', description: 'Тетрадь для записей и домашних заданий.' },
+      {
+        id: 's1',
+        word: 'КЛАСС',
+        translation: 'class',
+        description:
+          'Группа учеников и аудитория для занятий.',
+      },
+      {
+        id: 's2',
+        word: 'УРОК',
+        translation: 'lesson',
+        description: 'Отдельное занятие по предмету.',
+      },
+      {
+        id: 's3',
+        word: 'ТЕТРАДЬ',
+        translation: 'notebook',
+        description:
+          'Тетрадь для записей и домашних заданий.',
+      },
     ],
   },
+  // сюда позже можно добавить наборы с language: 'en'
 ];

@@ -1,4 +1,4 @@
-// utils/tetrominoFactory.ts - БЕЗ НИКАКИХ РОТАЦИЙ, ПРОСТО ИСПОЛЬЗУЕМ SHAPES
+// utils/tetrominoFactory.ts
 
 import {
   Tetromino,
@@ -6,55 +6,234 @@ import {
   TETROMINO_SHAPES,
   TETROMINO_COLORS,
   Cell,
-  LETTER_FREQUENCIES
+  LETTER_FREQUENCIES_RU,
+  LETTER_FREQUENCIES_EN,
+  LetterLanguage,
+  LetterFrequency,
 } from '../types/tetromino';
 
+type TetrominoStats = Record<TetrominoType, number>;
+
+const ALL_TYPES = Object.keys(TETROMINO_SHAPES) as TetrominoType[];
+
+const INITIAL_STATS: TetrominoStats = {
+  I: 0,
+  O: 0,
+  T: 0,
+  L: 0,
+  J: 0,
+  S: 0,
+  Z: 0,
+};
+
+let missStats: TetrominoStats = { ...INITIAL_STATS };
+
+const chooseWeightedType = (): TetrominoType => {
+  const weights = ALL_TYPES.map((t) => {
+    const miss = missStats[t] ?? 0;
+    return { type: t, weight: 1 + miss * (t === 'I' ? 0.2 : 0.3) };
+  });
+  const total = weights.reduce((sum, w) => sum + w.weight, 0);
+  let r = Math.random() * total;
+  for (const w of weights) {
+    if (r < w.weight) return w.type;
+    r -= w.weight;
+  }
+  return weights[weights.length - 1].type;
+};
+
+const getLetterFrequencies = (language: LetterLanguage): LetterFrequency[] =>
+  language === 'en' ? LETTER_FREQUENCIES_EN : LETTER_FREQUENCIES_RU;
+
+const generateBackgroundLetter = (baseFreq: LetterFrequency[]): string => {
+  const weighted: { letter: string; weight: number }[] = baseFreq.map((f, index) => {
+    const prevCum = index === 0 ? 0 : baseFreq[index - 1].cumulative;
+    const baseWeight = f.cumulative - prevCum;
+    return { letter: f.letter, weight: baseWeight };
+  });
+  const total = weighted.reduce((sum, w) => sum + w.weight, 0);
+  let r = Math.random() * total;
+  let chosen = weighted[0].letter;
+  for (const w of weighted) {
+    if (r < w.weight) {
+      chosen = w.letter;
+      break;
+    }
+    r -= w.weight;
+  }
+  return chosen;
+};
+
+const generateTargetLetter = (targetLetters: string[]): string => {
+  const normalized = targetLetters.map(ch => ch.toUpperCase()).filter(ch => ch.length > 0);
+  if (normalized.length === 0) {
+    return '?';
+  }
+  const idx = Math.floor(Math.random() * normalized.length);
+  return normalized[idx];
+};
+
+const generateWeightedLetters = ({
+  count,
+  language,
+  targetLetters,
+}: {
+  count: number;
+  language: LetterLanguage;
+  targetLetters?: string[];
+}): string[] => {
+  const baseFreq = getLetterFrequencies(language);
+
+  if (!targetLetters || targetLetters.length === 0) {
+    const letters: string[] = [];
+    for (let i = 0; i < count; i++) {
+      letters.push(generateBackgroundLetter(baseFreq));
+    }
+    return letters;
+  }
+
+  const normalizedTarget = targetLetters
+    .map(ch => ch.toUpperCase())
+    .filter(ch => baseFreq.some(f => f.letter === ch));
+
+  if (normalizedTarget.length === 0) {
+    const letters: string[] = [];
+    for (let i = 0; i < count; i++) {
+      letters.push(generateBackgroundLetter(baseFreq));
+    }
+    return letters;
+  }
+
+  const targetRatio = 0.5;
+  const targetCount = Math.max(1, Math.floor(count * targetRatio));
+  const backgroundCount = count - targetCount;
+  const result: string[] = [];
+
+  for (let i = 0; i < targetCount; i++) {
+    result.push(generateTargetLetter(normalizedTarget));
+  }
+  for (let i = 0; i < backgroundCount; i++) {
+    result.push(generateBackgroundLetter(baseFreq));
+  }
+
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+};
+
 export class TetrominoFactory {
+  // ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ ЯЗЫКА
+  private static currentLanguage: LetterLanguage = 'ru';
+  
+  // Метод для установки языка
+  static setLanguage(language: LetterLanguage) {
+    console.log('🌍 TetrominoFactory: устанавливаем язык =', language);
+    this.currentLanguage = language;
+  }
+  
+  // Метод для получения языка
+  static getLanguage(): LetterLanguage {
+    return this.currentLanguage;
+  }
+
+  static createMultiple(
+    count: number,
+    options?: { // Делаем options опциональным!
+      targetWordLetters?: string[];
+      buffMultiplier?: number;
+    }
+  ): Tetromino[] {
+    // Всегда используем currentLanguage!
+    const language = this.currentLanguage;
+    
+    console.log('🏭 TetrominoFactory.createMultiple: language =', language, 'count =', count);
+    
+    return Array(count).fill(null).map(() => 
+      this.createRandom(undefined, { 
+        language, // ← всегда из currentLanguage
+        targetWordLetters: options?.targetWordLetters 
+      })
+    );
+  }
+
+  static createRandom(
+    letters?: string[],
+    options?: {
+      language?: LetterLanguage; // Делаем опциональным
+      targetWordLetters?: string[];
+      buffMultiplier?: number;
+    }
+  ): Tetromino {
+    // Всегда используем currentLanguage!
+    const language = options?.language || this.currentLanguage;
+    
+    console.log('🏭 TetrominoFactory.createRandom: language =', language);
+    
+    const type = chooseWeightedType();
+
+    ALL_TYPES.forEach((t) => {
+      if (t === type) {
+        missStats[t] = 0;
+      } else {
+        missStats[t] = (missStats[t] ?? 0) + 1;
+      }
+    });
+
+    return this.create(type, letters, 3, 0, { 
+      language, // ← всегда из currentLanguage
+      targetWordLetters: options?.targetWordLetters 
+    });
+  }
+
   static create(
     type: TetrominoType,
     letters: string[] = [],
     startX: number = 3,
-    startY: number = 0
+    startY: number = 0,
+    options?: { // Делаем опциональным!
+      language?: LetterLanguage;
+      targetWordLetters?: string[];
+      buffMultiplier?: number;
+    }
   ): Tetromino {
+    // Всегда используем currentLanguage!
+    const language = options?.language || this.currentLanguage;
+    
+    console.log('🏭 TetrominoFactory.create: language =', language, 'type =', type);
+    
     const shape = TETROMINO_SHAPES[type];
     const color = TETROMINO_COLORS[type];
-    const finalLetters = letters.length > 0
-      ? letters
-      : this.generateWeightedLetters(this.countCells(shape));
-    
+    const effectiveStartY = type === 'I' ? -1 : startY;
+
+    const finalLetters =
+      letters.length > 0
+        ? letters
+        : generateWeightedLetters({
+            count: this.countCells(shape),
+            language, // ← всегда из currentLanguage
+            targetLetters: options?.targetWordLetters,
+          });
+
+    console.log('🏭 Generated letters for', type, ':', finalLetters);
+
     const cells = this.createCellsFromShape(shape, finalLetters, color);
 
-    // 🔴 БЕЗ РОТАЦИЙ! Просто возвращаем cells как есть
     return {
       cells,
-      position: { x: startX, y: startY },
+      position: { x: startX, y: effectiveStartY },
       rotation: 0,
-      type: type,
+      type,
     };
   }
 
-  static createRandom(letters?: string[]): Tetromino {
-    const types = Object.keys(TETROMINO_SHAPES) as TetrominoType[];
-    const randomType = types[Math.floor(Math.random() * types.length)];
-    return this.create(randomType, letters);
-  }
-
-  static createMultiple(count: number): Tetromino[] {
-    return Array(count).fill(null).map(() => this.createRandom());
+  static resetStats() {
+    missStats = { ...INITIAL_STATS };
   }
 
   private static countCells(shape: number[][]): number {
-    return shape.flat().filter(cell => cell === 1).length;
-  }
-
-  private static generateWeightedLetters(count: number): string[] {
-    const letters: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const random = Math.random() * 100;
-      const letterData = LETTER_FREQUENCIES.find(freq => random <= freq.cumulative);
-      letters.push(letterData ? letterData.letter : 'о');
-    }
-    return letters;
+    return shape.flat().filter((cell) => cell === 1).length;
   }
 
   private static createCellsFromShape(
@@ -64,111 +243,25 @@ export class TetrominoFactory {
   ): Cell[][] {
     let letterIndex = 0;
     const cells: Cell[][] = [];
-
     for (let i = 0; i < shape.length; i++) {
       const row: Cell[] = [];
       for (let j = 0; j < shape[i].length; j++) {
         if (shape[i][j] === 1) {
           row.push({
-            letter: letters[letterIndex++],
+            letter: letters[letterIndex++] ?? '',
             color,
-            isEmpty: false
+            isEmpty: false,
           });
         } else {
           row.push({
             letter: '',
             color: '#000000',
-            isEmpty: true
+            isEmpty: true,
           });
         }
       }
       cells.push(row);
     }
-
     return cells;
-  }
-}
-
-// Утилиты для работы с тетромино
-export class TetrominoUtils {
-  static rotate(tetromino: Tetromino): Tetromino {
-    const cells = tetromino.cells;
-    const rows = cells.length;
-    const cols = cells[0].length;
-
-    // Специальная обработка для I тетромино
-    if (cells.length === 4 && cells[0].length === 1) {
-      // Вертикальная I (4x1) → горизонтальная (1x4)
-      const rotatedCells: Cell[][] = [
-        [cells[0][0], cells[1][0], cells[2][0], cells[3][0]],
-      ];
-      return {
-        ...tetromino,
-        cells: rotatedCells,
-        rotation: (tetromino.rotation + 1) % 4,
-      };
-    } else if (cells.length === 1 && cells[0].length === 4) {
-      // Горизонтальная I (1x4) → вертикальная (4x1)
-      const rotatedCells: Cell[][] = [
-        [cells[0][0]],
-        [cells[0][1]],
-        [cells[0][2]],
-        [cells[0][3]],
-      ];
-      return {
-        ...tetromino,
-        cells: rotatedCells,
-        rotation: (tetromino.rotation + 1) % 4,
-      };
-    }
-
-    // Стандартная ротация для остальных
-    const rotatedCells: Cell[][] = Array(cols)
-      .fill(null)
-      .map(() => Array(rows).fill({
-        letter: '',
-        color: '#000000',
-        isEmpty: true
-      }));
-
-    for (let i = 0; i < rows; i++) {
-      for (let j = 0; j < cols; j++) {
-        rotatedCells[j][rows - 1 - i] = {
-          ...cells[i][j],
-          isEmpty: cells[i][j].isEmpty
-        };
-      }
-    }
-
-    return {
-      ...tetromino,
-      cells: rotatedCells,
-      rotation: (tetromino.rotation + 1) % 4
-    };
-  }
-
-  static move(tetromino: Tetromino, dx: number, dy: number): Tetromino {
-    return {
-      ...tetromino,
-      position: {
-        x: tetromino.position.x + dx,
-        y: tetromino.position.y + dy
-      }
-    };
-  }
-
-  static resetPosition(tetromino: Tetromino, startX: number = 3, startY: number = 0): Tetromino {
-    return {
-      ...tetromino,
-      position: { x: startX, y: startY },
-      rotation: 0
-    };
-  }
-
-  static getBounds(tetromino: Tetromino): { width: number; height: number } {
-    return {
-      width: tetromino.cells[0]?.length || 0,
-      height: tetromino.cells.length
-    };
   }
 }

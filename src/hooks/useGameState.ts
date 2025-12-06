@@ -1,209 +1,189 @@
-// hooks/useGameState.ts - ИСПРАВЛЕНИЕ: Lock Delay обновляется ТОЛЬКО при реальном движении
+// hooks/useGameState.ts
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+
 import { GameState, GameConfig, DEFAULT_GAME_CONFIG } from '../types/game';
 import { Tetromino } from '../types/tetromino';
-import { TetrominoFactory, TetrominoUtils } from '../utils/tetrominoFactory';
+import { TetrominoFactory } from '../utils/tetrominoFactory';
 import { useGameLoop } from './useGameLoop';
 import { useBoardManager } from './useBoardManager';
 import { useCollisionDetection } from './useCollisionDetection';
 
-const createInitialState = (gameConfig: GameConfig): GameState => {
-  const allTetrominos = TetrominoFactory.createMultiple(4);
-  return {
-    currentTetromino: allTetrominos.shift() || null,
-    nextTetrominos: allTetrominos,
-    heldTetromino: null,
-    canHold: true,
-    board: Array(gameConfig.boardHeight)
-      .fill(null)
-      .map(() => Array(gameConfig.boardWidth).fill(null)),
-    score: 0,
-    level: 1,
-    linesCleared: 0,
-    wordsFormed: 0,
-    isGameOver: false,
-    isPaused: false,
-    gameSpeed: gameConfig.initialSpeed,
-  };
-};
-
-// ========================================
-// ⏱️ LOCK DELAY КОНСТАНТЫ
-// ========================================
-
-const LOCK_DELAY_TIME = 500; // 500ms - стандартный Тетрис
-
+// язык больше не тащим сюда отдельным параметром
 export const useGameState = (
   config: GameConfig = DEFAULT_GAME_CONFIG,
-  initialGameState?: GameState
+  initialGameState?: GameState,
 ) => {
-  const [gameState, setGameState] = useState(() =>
-    initialGameState || createInitialState(config)
+  const LOCK_DELAY_TIME = 500;
+
+  const createInitialState = (): GameState => {
+    const allTetrominos = TetrominoFactory.createMultiple(
+      config.nextTetrominosCount + 1,
+      {
+        targetWordLetters: config.targetWord?.split('') ?? undefined,
+      }
+    );
+
+    return {
+      currentTetromino: allTetrominos.shift() || null,
+      nextTetrominos: allTetrominos,
+      heldTetromino: null,
+      canHold: true,
+      board: Array(config.boardHeight)
+        .fill(null)
+        .map(() => Array(config.boardWidth).fill(null)),
+      score: 0,
+      level: 1,
+      linesCleared: 0,
+      wordsFormed: 0,
+      isGameOver: false,
+      isPaused: false,
+      gameSpeed: config.initialSpeed,
+    };
+  };
+
+  const [gameState, setGameState] = useState<GameState>(() =>
+    initialGameState || createInitialState()
   );
 
   const boardManager = useBoardManager();
-  const collisionDetection = useCollisionDetection();
-
-  // ========================================
-  // 🔴 LOCK DELAY REFS
-  // ========================================
+  const { checkCollision, tryRotation } = useCollisionDetection();
 
   const lockDelayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lockDelayActiveRef = useRef(false);
-  const lockDelayElapsedRef = useRef(0);
-
-  // ========================================
-  // 🧹 ОЧИСТКА Lock Delay
-  // ========================================
 
   const clearLockDelay = useCallback(() => {
     if (lockDelayTimerRef.current) {
       clearTimeout(lockDelayTimerRef.current);
       lockDelayTimerRef.current = null;
-      lockDelayActiveRef.current = false;
-      lockDelayElapsedRef.current = 0;
-      console.log('🧹 Lock Delay очищен');
     }
+    lockDelayActiveRef.current = false;
   }, []);
 
-  // ========================================
-  // ⏱️ АКТИВАЦИЯ Lock Delay
-  // ========================================
+  const landTetrominoImmediate = useCallback(
+    (prev: GameState): GameState => {
+      if (!prev.currentTetromino) return prev;
+
+      const newBoard = boardManager.placeTetromino(
+        prev.currentTetromino,
+        prev.board
+      );
+      const { newBoard: boardAfterClear, linesCleared } =
+        boardManager.clearCompletedLines(newBoard);
+
+      let newScore = prev.score;
+      let newLevel = prev.level;
+      let newGameSpeed = prev.gameSpeed;
+
+      if (linesCleared > 0) {
+        const lineClearScore = boardManager.calculateLineClearScore(
+          linesCleared,
+          prev.level
+        );
+        newScore = prev.score + lineClearScore;
+
+        const totalLines = prev.linesCleared + linesCleared;
+        if (
+          Math.floor(totalLines / 10) >
+          Math.floor(prev.linesCleared / 10)
+        ) {
+          newLevel = prev.level + 1;
+          newGameSpeed = Math.max(
+            100,
+            prev.gameSpeed - config.speedIncreasePerLevel
+          );
+        }
+      }
+
+      const newNextTetrominos = [...prev.nextTetrominos];
+      const newCurrentTetromino = newNextTetrominos.shift() || null;
+
+      if (newNextTetrominos.length < config.nextTetrominosCount) {
+        const additionalTetrominos = TetrominoFactory.createMultiple(
+          config.nextTetrominosCount - newNextTetrominos.length,
+          {
+            targetWordLetters: config.targetWord?.split('') ?? undefined,
+          }
+        );
+        newNextTetrominos.push(...additionalTetrominos);
+      }
+
+      let isGameOver = false;
+      if (newCurrentTetromino) {
+        const canSpawn = !checkCollision(newCurrentTetromino, boardAfterClear);
+        if (!canSpawn) {
+          isGameOver = true;
+        }
+      }
+
+      clearLockDelay();
+
+      return {
+        ...prev,
+        board: boardAfterClear,
+        currentTetromino: newCurrentTetromino,
+        nextTetrominos: newNextTetrominos,
+        score: newScore,
+        level: newLevel,
+        gameSpeed: newGameSpeed,
+        linesCleared: prev.linesCleared + linesCleared,
+        isGameOver,
+        canHold: true,
+      };
+    },
+    [
+      boardManager,
+      checkCollision,
+      clearLockDelay,
+      config.speedIncreasePerLevel,
+      config.nextTetrominosCount,
+      config.targetWord,
+    ]
+  );
 
   const activateLockDelay = useCallback(() => {
-    // Отменяем старый таймер
     if (lockDelayTimerRef.current) {
       clearTimeout(lockDelayTimerRef.current);
     }
 
     lockDelayActiveRef.current = true;
-    lockDelayElapsedRef.current = 0;
-
-    console.log(`⏱️ Lock Delay АКТИВИРОВАН (${LOCK_DELAY_TIME}ms)`);
 
     lockDelayTimerRef.current = setTimeout(() => {
-      console.log('⏰ Lock Delay время истекло! Приземляем фигуру');
       lockDelayTimerRef.current = null;
       lockDelayActiveRef.current = false;
 
-      // ЭТО КРИТИЧНО: используем setGameState чтобы приземлить фигуру
-      setGameState(prev => {
+      setGameState((prev) => {
         if (!prev.currentTetromino || prev.isPaused || prev.isGameOver) {
           return prev;
         }
         return landTetrominoImmediate(prev);
       });
     }, LOCK_DELAY_TIME);
-  }, []);
+  }, [landTetrominoImmediate]);
 
-  // ========================================
-  // 🛬 ПРИЗЕМЛЕНИЕ ФИГУРЫ
-  // ========================================
-
-  const landTetrominoImmediate = (prev: GameState): GameState => {
-    if (!prev.currentTetromino) return prev;
-
-    const newBoard = boardManager.placeTetromino(
-      prev.currentTetromino,
-      prev.board
-    );
-
-    const { newBoard: boardAfterClear, linesCleared } =
-      boardManager.clearCompletedLines(newBoard);
-
-    let newScore = prev.score;
-    let newLevel = prev.level;
-    let newGameSpeed = prev.gameSpeed;
-
-    if (linesCleared > 0) {
-      const lineClearScore = boardManager.calculateLineClearScore(
-        linesCleared,
-        prev.level
-      );
-      newScore = prev.score + lineClearScore;
-
-      const totalLines = prev.linesCleared + linesCleared;
-      if (Math.floor(totalLines / 10) > Math.floor(prev.linesCleared / 10)) {
-        newLevel = prev.level + 1;
-        newGameSpeed = Math.max(
-          100,
-          prev.gameSpeed - config.speedIncreasePerLevel
-        );
-      }
-    }
-
-    const newNextTetrominos = [...prev.nextTetrominos];
-    const newCurrentTetromino = newNextTetrominos.shift() || null;
-
-    if (newNextTetrominos.length < 3) {
-      const additionalTetrominos = TetrominoFactory.createMultiple(
-        3 - newNextTetrominos.length
-      );
-      newNextTetrominos.push(...additionalTetrominos);
-    }
-
-    let isGameOver = false;
-    if (newCurrentTetromino) {
-      const canSpawn = !collisionDetection.checkCollision(
-        newCurrentTetromino,
-        boardAfterClear
-      );
-      if (!canSpawn) {
-        isGameOver = true;
-      }
-    }
-
-    // 🧹 Очищаем Lock Delay при приземлении
-    clearLockDelay();
-
-    return {
-      ...prev,
-      board: boardAfterClear,
-      currentTetromino: newCurrentTetromino,
-      nextTetrominos: newNextTetrominos,
-      score: newScore,
-      level: newLevel,
-      gameSpeed: newGameSpeed,
-      linesCleared: prev.linesCleared + linesCleared,
-      isGameOver: isGameOver,
-      canHold: true,
-    };
-  };
-
-  // ========================================
-  // 🎮 ИГРОВОЙ ЦИКЛ
-  // ========================================
-
-  useGameLoop({
+  const { resetTick } = useGameLoop({
     gameState,
     onTick: () => {
-      setGameState(prev => {
+      setGameState((prev) => {
         if (!prev.currentTetromino || prev.isPaused || prev.isGameOver) {
           return prev;
         }
 
-        // 🔴 НОВОЕ: Если Lock Delay активен, просто пропускаем падение
         if (lockDelayActiveRef.current) {
-          console.log('⏳ Lock Delay активен, не падаем');
           return prev;
         }
 
-        // Обычное падение
         const newPosition = {
           x: prev.currentTetromino.position.x,
           y: prev.currentTetromino.position.y + 1,
         };
 
-        const hasCollision = collisionDetection.checkCollision(
+        const collision = checkCollision(
           prev.currentTetromino,
           prev.board,
           newPosition
         );
-
-        if (hasCollision) {
-          // 🔴 НОВОЕ: Активируем Lock Delay вместо setShouldLand
-          console.log('💥 Коллизия снизу! Активируем Lock Delay');
+        if (collision) {
           activateLockDelay();
           return prev;
         }
@@ -219,245 +199,166 @@ export const useGameState = (
     },
   });
 
-  // ========================================
-  // 👈 ДВИЖЕНИЕ ФИГУРЫ - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ
-  // ========================================
+  const moveTetromino = useCallback(
+    (dx: number, dy: number) => {
+      setGameState((prev) => {
+        if (!prev.currentTetromino || prev.isPaused || prev.isGameOver)
+          return prev;
 
-  /**
-   * 🔴 КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ:
-   * Lock Delay обновляется ТОЛЬКО если фигура РЕАЛЬНО ДВИНУЛАСЬ
-   * (не просто попыталась упасть, когда уже внизу)
-   */
-  const moveTetromino = useCallback((dx: number, dy: number) => {
-    setGameState(prev => {
-      if (!prev.currentTetromino || prev.isPaused || prev.isGameOver)
-        return prev;
-
-      const newPosition = {
-        x: prev.currentTetromino.position.x + dx,
-        y: prev.currentTetromino.position.y + dy,
-      };
-
-      const hasCollision = collisionDetection.checkCollision(
-        prev.currentTetromino,
-        prev.board,
-        newPosition
-      );
-
-      // Если не можем двинуться в эту сторону
-      if (hasCollision) {
-        // 🔴 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: 
-        // Активируем Lock Delay ТОЛЬКО если это вертикальное движение (dy > 0)
-        // И ТОЛЬКО если фигура реально упёрлась (не просто попыталась)
-        if (dy > 0) {
-          // Это попытка упасть вниз
-          // Если нету Lock Delay - активируем, иначе игнорируем
-          if (!lockDelayActiveRef.current) {
-            console.log('💥 Первый раз упёрлись! Активируем Lock Delay');
-            activateLockDelay();
-          } else {
-            // Lock Delay уже активен
-            // Игнорируем попытку упасть - не обновляем таймер!
-            console.log('⏳ Lock Delay уже активен, игнорируем попытку упасть');
-          }
-        }
-        return prev;
-      }
-
-      // ✅ Успешно двинулись! Обновляем позицию
-      const updatedTetromino = {
-        ...prev.currentTetromino,
-        position: newPosition,
-      };
-
-      // 🔴 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
-      // Проверяем коллизию СНИЗУ в НОВОЙ позиции ТОЛЬКО для горизонтального движения (dx != 0)
-      // или для вертикального движения вверх (dy < 0)
-      
-      // Для горизонтального движения - проверяем коллизию снизу
-      if (dx !== 0) {
-        const nextPosition = {
-          x: newPosition.x,
-          y: newPosition.y + 1,
+        const newPosition = {
+          x: prev.currentTetromino.position.x + dx,
+          y: prev.currentTetromino.position.y + dy,
         };
 
-        const hasBottomCollision = collisionDetection.checkCollision(
+        const collision = checkCollision(
           prev.currentTetromino,
           prev.board,
-          nextPosition
+          newPosition
         );
-
-        if (hasBottomCollision) {
-          // Коллизия снизу после горизонтального движения → ПЕРЕЗАПУСКАЕМ Lock Delay
-          console.log('⏱️ Горизонтальное движение - коллизия снизу! Перезапускаем Lock Delay');
-          activateLockDelay();
-        } else {
-          // НЕТ коллизии → ОТМЕНЯЕМ Lock Delay (фигура ушла от дна)
-          if (lockDelayActiveRef.current) {
-            console.log('✅ После горизонтального движения - нет коллизии! Отменяем Lock Delay');
-            clearLockDelay();
+        if (collision) {
+          if (dy > 0 && !lockDelayActiveRef.current) {
+            activateLockDelay();
           }
-        }
-      }
-
-      return {
-        ...prev,
-        currentTetromino: updatedTetromino,
-      };
-    });
-  }, [collisionDetection, activateLockDelay, clearLockDelay]);
-
-  // ========================================
-  // 🔄 ВРАЩЕНИЕ ФИГУРЫ
-  // ========================================
-
-  const rotateTetromino = useCallback(() => {
-    setGameState(prev => {
-      if (!prev.currentTetromino || prev.isPaused || prev.isGameOver)
-        return prev;
-
-      const rotatedTetromino = TetrominoUtils.rotate(prev.currentTetromino);
-
-      const hasCollision = collisionDetection.checkCollision(
-        rotatedTetromino,
-        prev.board
-      );
-
-      if (!hasCollision) {
-        // 🔴 Проверяем коллизию снизу после вращения
-        const nextPosition = {
-          x: rotatedTetromino.position.x,
-          y: rotatedTetromino.position.y + 1,
-        };
-
-        const hasBottomCollision = collisionDetection.checkCollision(
-          rotatedTetromino,
-          prev.board,
-          nextPosition
-        );
-
-        if (hasBottomCollision && !lockDelayActiveRef.current) {
-          console.log('⏱️ После вращения - коллизия снизу! Активируем Lock Delay');
-          activateLockDelay();
-        } else if (!hasBottomCollision && lockDelayActiveRef.current) {
-          console.log('✅ После вращения - нет коллизии! Отменяем Lock Delay');
-          clearLockDelay();
+          return prev;
         }
 
-        return {
-          ...prev,
-          currentTetromino: rotatedTetromino,
-        };
-      }
-
-      // Wall kick логика
-      const wallKickOffsets = [-1, 1, -2, 2];
-
-      for (const offset of wallKickOffsets) {
-        const wallKickPosition = {
-          x: rotatedTetromino.position.x + offset,
-          y: rotatedTetromino.position.y,
+        const updatedTetromino = {
+          ...prev.currentTetromino,
+          position: newPosition,
         };
 
-        const wallKickTetromino = {
-          ...rotatedTetromino,
-          position: wallKickPosition,
-        };
-
-        const hasWallKickCollision = collisionDetection.checkCollision(
-          wallKickTetromino,
-          prev.board
-        );
-
-        if (!hasWallKickCollision) {
-          // 🔴 Проверяем коллизию снизу после wall kick
+        if (dx !== 0) {
           const nextPosition = {
-            x: wallKickPosition.x,
-            y: wallKickPosition.y + 1,
+            x: newPosition.x,
+            y: newPosition.y + 1,
           };
 
-          const hasBottomCollision = collisionDetection.checkCollision(
-            wallKickTetromino,
+          const hasBottomCollision = checkCollision(
+            prev.currentTetromino,
             prev.board,
             nextPosition
           );
 
           if (hasBottomCollision && !lockDelayActiveRef.current) {
-            console.log('⏱️ После wall kick - коллизия снизу! Активируем Lock Delay');
             activateLockDelay();
           } else if (!hasBottomCollision && lockDelayActiveRef.current) {
-            console.log('✅ После wall kick - нет коллизии! Отменяем Lock Delay');
             clearLockDelay();
           }
-
-          return {
-            ...prev,
-            currentTetromino: wallKickTetromino,
-          };
         }
-      }
 
-      return prev;
-    });
-  }, [collisionDetection, activateLockDelay, clearLockDelay]);
+        return {
+          ...prev,
+          currentTetromino: updatedTetromino,
+        };
+      });
+    },
+    [checkCollision, activateLockDelay, clearLockDelay]
+  );
 
-  // ========================================
-  // 🎯 HOLD ФИГУРЫ
-  // ========================================
+  const rotateTetromino = useCallback(
+    (dir: 'CW' | 'CCW' = 'CW') => {
+      setGameState((prev) => {
+        if (!prev.currentTetromino || prev.isPaused || prev.isGameOver)
+          return prev;
+
+        const rotated = tryRotation(prev.currentTetromino, prev.board, dir);
+        if (!rotated) {
+          return prev;
+        }
+
+        const nextPos = {
+          x: rotated.position.x,
+          y: rotated.position.y + 1,
+        };
+
+        const touchesBottom = checkCollision(rotated, prev.board, nextPos);
+
+        if (touchesBottom && !lockDelayActiveRef.current) {
+          activateLockDelay();
+        } else if (!touchesBottom && lockDelayActiveRef.current) {
+          clearLockDelay();
+        }
+
+        return {
+          ...prev,
+          currentTetromino: rotated,
+        };
+      });
+    },
+    [tryRotation, checkCollision, activateLockDelay, clearLockDelay]
+  );
 
   const holdTetromino = useCallback(() => {
-    setGameState(prev => {
-      if (!prev.canHold || !prev.currentTetromino || prev.isPaused || prev.isGameOver) {
+    setGameState((prev) => {
+      if (
+        !prev.canHold ||
+        !prev.currentTetromino ||
+        prev.isPaused ||
+        prev.isGameOver
+      ) {
         return prev;
       }
 
       if (!prev.heldTetromino) {
         const letters = prev.currentTetromino.cells
           .flat()
-          .filter(cell => !cell.isEmpty)
-          .map(cell => cell.letter);
+          .filter((cell) => !cell.isEmpty)
+          .map((cell) => cell.letter);
 
-        const newHeldTetromino = prev.currentTetromino.type
-          ? TetrominoFactory.create(prev.currentTetromino.type, letters)
-          : prev.currentTetromino;
+        const newHeldTetromino = TetrominoFactory.create(
+          prev.currentTetromino.type,
+          letters,
+          3,
+          0,
+          {
+            targetWordLetters: config.targetWord?.split('') ?? undefined,
+          }
+        );
 
         const newNextTetrominos = [...prev.nextTetrominos];
         const newCurrentTetromino = newNextTetrominos.shift() || null;
 
-        if (newNextTetrominos.length < 3) {
+        if (newNextTetrominos.length < config.nextTetrominosCount) {
           const additionalTetrominos = TetrominoFactory.createMultiple(
-            3 - newNextTetrominos.length
+            config.nextTetrominosCount - newNextTetrominos.length,
+            {
+              targetWordLetters: config.targetWord?.split('') ?? undefined,
+            }
           );
           newNextTetrominos.push(...additionalTetrominos);
         }
 
-        if (newCurrentTetromino) {
-          clearLockDelay();
+        clearLockDelay();
+        resetTick(80);
 
-          return {
-            ...prev,
-            currentTetromino: newCurrentTetromino,
-            nextTetrominos: newNextTetrominos,
-            heldTetromino: newHeldTetromino,
-            canHold: false,
-          };
-        }
-
-        return prev;
+        return {
+          ...prev,
+          currentTetromino: newCurrentTetromino,
+          nextTetrominos: newNextTetrominos,
+          heldTetromino: newHeldTetromino,
+          canHold: false,
+        };
       }
 
       const newCurrentTetromino = prev.heldTetromino;
 
       const letters = prev.currentTetromino.cells
         .flat()
-        .filter(cell => !cell.isEmpty)
-        .map(cell => cell.letter);
+        .filter((cell) => !cell.isEmpty)
+        .map((cell) => cell.letter);
 
-      const newHeldTetromino = prev.currentTetromino.type
-        ? TetrominoFactory.create(prev.currentTetromino.type, letters)
-        : prev.currentTetromino;
+      const newHeldTetromino = TetrominoFactory.create(
+        prev.currentTetromino.type,
+        letters,
+        3,
+        0,
+        {
+          targetWordLetters: config.targetWord?.split('') ?? undefined,
+        }
+      );
 
       clearLockDelay();
+      resetTick(80);
 
       return {
         ...prev,
@@ -466,21 +367,17 @@ export const useGameState = (
         canHold: false,
       };
     });
-  }, [clearLockDelay]);
-
-  // ========================================
-  // 💨 HARD DROP
-  // ========================================
+  }, [clearLockDelay, resetTick, config.targetWord, config.nextTetrominosCount]);
 
   const hardDrop = useCallback(() => {
-    setGameState(prev => {
-      if (!prev.currentTetromino || prev.isPaused || prev.isGameOver)
+    setGameState((prev) => {
+      if (!prev.currentTetromino || prev.isPaused || prev.isGameOver) {
         return prev;
+      }
 
       let y = prev.currentTetromino.position.y;
-
       while (
-        !collisionDetection.checkCollision(prev.currentTetromino, prev.board, {
+        !checkCollision(prev.currentTetromino, prev.board, {
           x: prev.currentTetromino.position.x,
           y: y + 1,
         })
@@ -488,69 +385,60 @@ export const useGameState = (
         y += 1;
       }
 
-      const finalTetromino = {
+      const finalTetromino: Tetromino = {
         ...prev.currentTetromino,
         position: {
           x: prev.currentTetromino.position.x,
-          y: y,
+          y,
         },
       };
 
       clearLockDelay();
-
-      return landTetrominoImmediate({
+      const nextState = landTetrominoImmediate({
         ...prev,
         currentTetromino: finalTetromino,
       });
-    });
-  }, [collisionDetection, clearLockDelay]);
 
-  // ========================================
-  // ⏸️ ПАУЗА / ВОЗОБНОВЛЕНИЕ
-  // ========================================
+      return nextState;
+    });
+    resetTick(80);
+  }, [checkCollision, clearLockDelay, landTetrominoImmediate, resetTick]);
 
   const pause = useCallback(() => {
     clearLockDelay();
-    setGameState(prev => ({ ...prev, isPaused: true }));
+    setGameState((prev) => ({ ...prev, isPaused: true }));
   }, [clearLockDelay]);
 
   const resume = useCallback(() => {
-    setGameState(prev => ({ ...prev, isPaused: false }));
+    setGameState((prev) => ({ ...prev, isPaused: false }));
   }, []);
 
-  // ========================================
-  // 🔄 ПЕРЕЗАГРУЗКА ИГРЫ
-  // ========================================
-
   const restart = useCallback(() => {
-    clearLockDelay();
-    setGameState(createInitialState(config));
-  }, [config, clearLockDelay]);
-
-  // ========================================
-  // 📊 ПРОСТЫЕ ДЕЙСТВИЯ
-  // ========================================
+    const initial = createInitialState();
+    setGameState(initial);
+    resetTick(80);
+  }, [createInitialState, resetTick]);
 
   const addScore = useCallback((points: number) => {
-    setGameState(prev => ({ ...prev, score: prev.score + points }));
+    setGameState((prev) => ({ ...prev, score: prev.score + points }));
   }, []);
 
   const addLines = useCallback((lines: number) => {
-    setGameState(prev => ({
+    setGameState((prev) => ({
       ...prev,
       linesCleared: prev.linesCleared + lines,
     }));
   }, []);
 
   const addWord = useCallback(() => {
-    setGameState(prev => ({
+    setGameState((prev) => ({
       ...prev,
       wordsFormed: prev.wordsFormed + 1,
     }));
   }, []);
 
   const levelUp = useCallback(() => {
-    setGameState(prev => ({
+    setGameState((prev) => ({
       ...prev,
       level: prev.level + 1,
       gameSpeed: Math.max(
@@ -561,61 +449,63 @@ export const useGameState = (
   }, [config.speedIncreasePerLevel]);
 
   const spawnNewTetromino = useCallback(() => {
-    setGameState(prev => {
+    setGameState((prev) => {
       const newNextTetrominos = [...prev.nextTetrominos];
       const newCurrentTetromino = newNextTetrominos.shift() || null;
 
-      if (newNextTetrominos.length < 3) {
+      if (newNextTetrominos.length < config.nextTetrominosCount) {
         const additionalTetrominos = TetrominoFactory.createMultiple(
-          3 - newNextTetrominos.length
+          config.nextTetrominosCount - newNextTetrominos.length,
+          {
+            targetWordLetters: config.targetWord?.split('') ?? undefined,
+          }
         );
         newNextTetrominos.push(...additionalTetrominos);
       }
 
-      return {
-        ...prev,
-        currentTetromino: newCurrentTetromino,
-        nextTetrominos: newNextTetrominos,
-        canHold: true,
-      };
+      if (newCurrentTetromino) {
+        return {
+          ...prev,
+          currentTetromino: newCurrentTetromino,
+          nextTetrominos: newNextTetrominos,
+          canHold: true,
+        };
+      }
+
+      return prev;
     });
-  }, []);
+    resetTick(80);
+  }, [resetTick, config.nextTetrominosCount, config.targetWord]);
 
   const setCurrentTetromino = useCallback((tetromino: Tetromino | null) => {
-    setGameState(prev => ({ ...prev, currentTetromino: tetromino }));
+    setGameState((prev) => ({ ...prev, currentTetromino: tetromino }));
   }, []);
 
   const setNextTetrominos = useCallback((tetrominos: Tetromino[]) => {
-    setGameState(prev => ({ ...prev, nextTetrominos: tetrominos }));
+    setGameState((prev) => ({ ...prev, nextTetrominos: tetrominos }));
   }, []);
 
   const setBoard = useCallback((board: GameState['board']) => {
-    setGameState(prev => ({ ...prev, board }));
+    setGameState((prev) => ({ ...prev, board }));
   }, []);
 
-  const setGameOver = useCallback((isGameOver: boolean) => {
-    clearLockDelay();
-    setGameState(prev => ({ ...prev, isGameOver }));
-  }, [clearLockDelay]);
+  const setGameOver = useCallback(
+    (isGameOver: boolean) => {
+      clearLockDelay();
+      setGameState((prev) => ({ ...prev, isGameOver }));
+    },
+    [clearLockDelay]
+  );
 
   const setCanHold = useCallback((canHold: boolean) => {
-    setGameState(prev => ({ ...prev, canHold }));
+    setGameState((prev) => ({ ...prev, canHold }));
   }, []);
-
-  // ========================================
-  // 🧹 CLEANUP ПРИ РАЗМОНТИРОВАНИИ
-  // ========================================
 
   useEffect(() => {
     return () => {
-      console.log('🧹 useGameState размонтируется - ОЧИЩАЕМ Lock Delay');
       clearLockDelay();
     };
   }, [clearLockDelay]);
-
-  // ========================================
-  // 📤 ВОЗВРАЩАЕМОЕ ЗНАЧЕНИЕ
-  // ========================================
 
   return {
     gameState,
@@ -637,13 +527,9 @@ export const useGameState = (
       setGameOver,
       setCanHold,
       spawnNew: spawnNewTetromino,
-
-      // ✨ ДОБАВЛЕНО: итог за слово (OCP — только новый код)
       applyWordResult: (word: string) => {
         const len = (word || '').trim().length;
-        // Простое правило: за каждую букву после второй — 50 очков
         const bonus = len > 2 ? (len - 2) * 50 : 0;
-        // Используем существующие простые действия, не меняя их логику
         addWord();
         if (bonus > 0) addScore(bonus);
       },

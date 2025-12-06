@@ -1,4 +1,4 @@
-// hooks/useGameLoop.ts - ОБНОВЛЕНО: убрана старая логика приземления
+// hooks/useGameLoop.ts - ОБНОВЛЕНО: добавлен resetTick
 
 import { useEffect, useRef, useCallback } from 'react';
 import { GameState } from '../types/game';
@@ -28,7 +28,6 @@ export const useGameLoop = ({ gameState, onTick }: GameLoopProps) => {
   // Основной игровой цикл
   const gameLoop = useCallback((currentTime: number) => {
     if (!isRunningRef.current) {
-      console.log('🛑 Game loop остановлен');
       return;
     }
 
@@ -45,15 +44,20 @@ export const useGameLoop = ({ gameState, onTick }: GameLoopProps) => {
     }
   }, []);
 
+  // ВНЕШНИЙ сброс таймера тика с дополнительной задержкой
+  // extraDelayMs: насколько "отмотать" назад время, чтобы до следующего тика прошло gameSpeed + extraDelayMs
+  const resetTick = useCallback((extraDelayMs: number = 0) => {
+    const now = performance.now();
+    lastTickTime.current = now - extraDelayMs;
+  }, []);
+
   // Запуск и остановка игрового цикла
   useEffect(() => {
-    console.log('▶️ useGameLoop монтируется, запускаем цикл');
     isRunningRef.current = true;
     lastTickTime.current = performance.now();
     animationFrameId.current = requestAnimationFrame(gameLoop);
 
     return () => {
-      console.log('⏹️ useGameLoop размонтируется, ОСТАНАВЛИВАЕМ цикл');
       isRunningRef.current = false;
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
@@ -62,5 +66,5 @@ export const useGameLoop = ({ gameState, onTick }: GameLoopProps) => {
     };
   }, [gameLoop]);
 
-  return {};
+  return { resetTick };
 };

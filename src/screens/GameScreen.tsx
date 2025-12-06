@@ -3,28 +3,43 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { View, StyleSheet, StatusBar, TouchableOpacity, Text, Modal, ImageBackground } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  Text,
+  Modal,
+  ImageBackground,
+} from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+
 import TetrisBoard from '../components/TetrisBoard';
 import TetrominoBox from '../components/TetrominoBox';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+
 import { useGameState } from '../hooks/useGameState';
 import { useTouchGameControls } from '../hooks/useTouchGameControls';
 import { useGamePersistence } from '../hooks/useGamePersistence';
 import { useAudioManager } from '../hooks/useAudioManager';
+
 import { RootStackParamList } from '../../App';
 import { CommonActions } from '@react-navigation/native';
+
 import { RecognitionModeOverlay } from '../components/RecognitionModeOverlay';
 import type { LetterPosition } from '../hooks/useWordRecognition';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import {
   WordSet,
   WordData,
   builtInWordSets,
   STORAGE_FOUND_WORDS,
 } from '../types/wordSets';
+
 import WordCard from '../components/WordCard';
+import { DEFAULT_GAME_CONFIG } from '../types/game';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
@@ -32,28 +47,21 @@ export default function GameScreen({ navigation, route }: Props) {
   // ========================================
   // 🔧 ИНИЦИАЛИЗАЦИЯ
   // ========================================
-
   const savedGameData = route.params?.savedGameData;
   const routeWordSetId = route.params?.wordSetId;
 
-  const { gameState, actions } = useGameState(
-    savedGameData?.config,
-    savedGameData?.gameState
-  );
-
   const { saveGame, clearSavedGame } = useGamePersistence();
-  const { playSound, playBackgroundMusic, stopBackgroundMusic } = useAudioManager();
+  const { playSound, playBackgroundMusic, stopBackgroundMusic } =
+    useAudioManager();
 
   // ========================================
   // 📦 СОСТОЯНИЕ
   // ========================================
-
   const [showDebug, setShowDebug] = useState(false);
   const [showPauseMenu, setShowPauseMenu] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [countdownTime, setCountdownTime] = useState<number | null>(null);
   const [isControlsDisabled, setIsControlsDisabled] = useState(false);
-
   const [recognitionModeActive, setRecognitionModeActive] = useState(false);
   const [recognitionTimer, setRecognitionTimer] = useState(120);
   const [selectedPath, setSelectedPath] = useState<LetterPosition[]>([]);
@@ -68,6 +76,17 @@ export default function GameScreen({ navigation, route }: Props) {
     savedGameData?.currentTargetId ?? null
   );
 
+  // 🔧 Конфиг игры
+  const effectiveConfig = {
+    ...DEFAULT_GAME_CONFIG,
+    ...(savedGameData?.config ?? {}),
+    targetWord: currentTargetWord ?? undefined,
+  };
+
+  const { gameState, actions } = useGameState(
+    effectiveConfig,
+    undefined
+  );
 
   // ✨ Карточка только что найденного слова
   const [justFoundWord, setJustFoundWord] = useState<WordData | null>(null);
@@ -76,23 +95,25 @@ export default function GameScreen({ navigation, route }: Props) {
   // ========================================
   // 📍 REFS
   // ========================================
-
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const backgroundMusicStartedRef = useRef(false);
-  const stateRef = useRef({ isControlsDisabled, isPaused: gameState.isPaused });
+  const stateRef = useRef({
+    isControlsDisabled,
+    isPaused: gameState.isPaused,
+  });
 
   // ========================================
   // 🧩 РАБОТА С НАБОРОМ СЛОВ
   // ========================================
-
   const chooseNextTarget = (set: WordSet, found: string[]) => {
-    const candidates = set.words.filter(w => !found.includes(w.id));
+    const candidates = set.words.filter((w) => !found.includes(w.id));
     if (candidates.length === 0) {
       console.log('✅ Все слова в наборе найдены');
       setCurrentTargetWord(null);
       setCurrentTargetId(null);
       return;
     }
+
     const random = candidates[Math.floor(Math.random() * candidates.length)];
     setCurrentTargetWord(random.word.toUpperCase());
     setCurrentTargetId(random.id);
@@ -105,13 +126,14 @@ export default function GameScreen({ navigation, route }: Props) {
         const fromRoute = routeWordSetId;
         const fromSave = savedGameData?.wordSetId;
         const setId = fromRoute ?? fromSave;
+
         if (!setId) {
           console.log('⚠️ wordSetId не передан в GameScreen');
           setCurrentWordSet(null);
           return;
         }
 
-        const set = builtInWordSets.find(s => s.id === setId);
+        const set = builtInWordSets.find((s) => s.id === setId);
         if (!set) {
           console.log('⚠️ Набор не найден по id:', setId);
           setCurrentWordSet(null);
@@ -125,13 +147,17 @@ export default function GameScreen({ navigation, route }: Props) {
         const alreadyFound = parsed[set.id] ?? [];
         setFoundIds(alreadyFound);
 
-        // Если в сохранении уже есть цель — оставляем её.
-        if (savedGameData?.currentTargetWord && savedGameData?.currentTargetId) {
-          console.log('🎯 Восстанавливаем сохранённую цель:', savedGameData.currentTargetWord);
+        if (
+          savedGameData?.currentTargetWord &&
+          savedGameData?.currentTargetId
+        ) {
+          console.log(
+            '🎯 Восстанавливаем сохранённую цель:',
+            savedGameData.currentTargetWord
+          );
           return;
         }
 
-        // Иначе выбираем новую цель из ещё не найденных
         chooseNextTarget(set, alreadyFound);
       } catch (e) {
         console.log('Ошибка инициализации набора слов в GameScreen', e);
@@ -141,73 +167,70 @@ export default function GameScreen({ navigation, route }: Props) {
     initWordSet();
   }, [routeWordSetId, savedGameData]);
 
-
   // ========================================
   // ⏱️ ТАЙМЕР ОБРАТНОГО ОТСЧЁТА
   // ========================================
+  const startCountdown = useCallback(
+    (duration: number = 3) => {
+      console.log(
+        `⏱️ Таймер начат на ${duration} сек, isControlsDisabled = true`
+      );
+      setCountdownTime(duration);
+      setIsControlsDisabled(true);
 
-  const startCountdown = useCallback((duration: number = 3) => {
-    console.log(`⏱️ Таймер начат на ${duration} сек, isControlsDisabled = true`);
+      let remaining = duration;
 
-    setCountdownTime(duration);
-    setIsControlsDisabled(true);
-
-    let remaining = duration;
-
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-      console.log('🗑️ Старый таймер очищен');
-    }
-
-    countdownIntervalRef.current = setInterval(() => {
-      remaining -= 1;
-      console.log(`⏳ Таймер: ${remaining} сек осталось`);
-      setCountdownTime(remaining);
-
-      if (remaining <= 0) {
-        if (countdownIntervalRef.current) {
-          clearInterval(countdownIntervalRef.current);
-          countdownIntervalRef.current = null;
-        }
-        console.log('✅ Таймер закончился, isControlsDisabled = false');
-        setCountdownTime(null);
-        setIsControlsDisabled(false);
-        actions.resume();
-
-        setTimeout(() => {
-          if (!backgroundMusicStartedRef.current) {
-            console.log('🎵 Запускаем фоновую музыку');
-            playBackgroundMusic();
-            backgroundMusicStartedRef.current = true;
-          }
-        }, 100);
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        console.log('🗑️ Старый таймер очищен');
       }
-    }, 1000);
-  }, [actions, playBackgroundMusic]);
+
+      countdownIntervalRef.current = setInterval(() => {
+        remaining -= 1;
+        console.log(`⏳ Таймер: ${remaining} сек осталось`);
+        setCountdownTime(remaining);
+
+        if (remaining <= 0) {
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+          }
+
+          console.log('✅ Таймер закончился, isControlsDisabled = false');
+          setCountdownTime(null);
+          setIsControlsDisabled(false);
+          actions.resume();
+
+          setTimeout(() => {
+            if (!backgroundMusicStartedRef.current) {
+              console.log('🎵 Запускаем фоновую музыку');
+              playBackgroundMusic();
+              backgroundMusicStartedRef.current = true;
+            }
+          }, 100);
+        }
+      }, 1000);
+    },
+    [actions, playBackgroundMusic]
+  );
 
   // ========================================
   // 🧹 CLEANUP
   // ========================================
-
   useEffect(() => {
     return () => {
       console.log('🧹 GameScreen размонтируется - ПОЛНАЯ ОЧИСТКА');
-
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
       }
-
       stopBackgroundMusic();
-
       try {
         actions.pause();
       } catch {
         console.log('⚠️ actions уже недоступны при cleanup');
       }
-
       setIsControlsDisabled(false);
-
       console.log('✅ Cleanup завершён');
     };
   }, [stopBackgroundMusic]);
@@ -215,15 +238,16 @@ export default function GameScreen({ navigation, route }: Props) {
   // ========================================
   // 🔄 ОБНОВЛЕНИЕ stateRef
   // ========================================
-
   useEffect(() => {
-    stateRef.current = { isControlsDisabled, isPaused: gameState.isPaused };
+    stateRef.current = {
+      isControlsDisabled,
+      isPaused: gameState.isPaused,
+    };
   }, [isControlsDisabled, gameState.isPaused]);
 
   // ========================================
   // 🚫 SWIPE BACK
   // ========================================
-
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       if (e.data.action.type === 'GO_BACK') {
@@ -231,21 +255,18 @@ export default function GameScreen({ navigation, route }: Props) {
         handlePause();
       }
     });
+
     return unsubscribe;
   }, [navigation, gameState.isPaused, showPauseMenu, isControlsDisabled]);
 
   // ========================================
   // 📱 ИНИЦИАЛИЗАЦИЯ
   // ========================================
-
   useEffect(() => {
     console.log('📱 GameScreen загружен, ставим паузу и запускаем таймер');
     actions.pause();
     startCountdown(3);
-
-    if (!savedGameData) {
-      backgroundMusicStartedRef.current = false;
-    }
+    backgroundMusicStartedRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -270,7 +291,6 @@ export default function GameScreen({ navigation, route }: Props) {
   // ========================================
   // 👆 СВАЙПЫ
   // ========================================
-
   const touchControls = useTouchGameControls({
     onMoveLeft: () => {
       const state = stateRef.current;
@@ -312,7 +332,6 @@ export default function GameScreen({ navigation, route }: Props) {
   // ========================================
   // 🎮 ОБРАБОТЧИКИ
   // ========================================
-
   const handlePause = () => {
     if (gameState.isPaused && showPauseMenu) {
       setShowPauseMenu(false);
@@ -373,7 +392,6 @@ export default function GameScreen({ navigation, route }: Props) {
     );
 
     actions.restart();
-
     setShowExitConfirm(false);
     setShowPauseMenu(false);
     setCountdownTime(null);
@@ -395,7 +413,6 @@ export default function GameScreen({ navigation, route }: Props) {
     stopBackgroundMusic();
     await clearSavedGame();
     actions.restart();
-
     setShowExitConfirm(false);
     setShowPauseMenu(false);
     setCountdownTime(null);
@@ -417,7 +434,6 @@ export default function GameScreen({ navigation, route }: Props) {
     stopBackgroundMusic();
     await clearSavedGame();
     actions.restart();
-
     setShowExitConfirm(false);
     setShowPauseMenu(false);
     setCountdownTime(null);
@@ -436,7 +452,6 @@ export default function GameScreen({ navigation, route }: Props) {
   // ========================================
   // ✨ РЕЖИМ РАЗГАДЫВАНИЯ + ПРОГРЕСС СЛОВ
   // ========================================
-
   const handleActivateRecognitionMode = () => {
     if (gameState.isGameOver || recognitionModeActive) return;
     console.log('🔍 Активируем режим разгадывания');
@@ -456,12 +471,24 @@ export default function GameScreen({ navigation, route }: Props) {
     let success = false;
     let unlockedWord: WordData | null = null;
 
-    if (currentTargetWord && upper === currentTargetWord && currentWordSet && currentTargetId) {
+    if (
+      currentTargetWord &&
+      upper === currentTargetWord &&
+      currentWordSet &&
+      currentTargetId
+    ) {
       success = true;
-      unlockedWord = currentWordSet.words.find(w => w.id === currentTargetId) ?? null;
+      unlockedWord =
+        currentWordSet.words.find((w) => w.id === currentTargetId) ??
+        null;
       console.log('🎯 Совпадение с целью!');
     } else {
-      console.log('❌ Не совпало с целью. target =', currentTargetWord, 'word =', upper);
+      console.log(
+        '❌ Не совпало с целью. target =',
+        currentTargetWord,
+        'word =',
+        upper
+      );
     }
 
     if (success && currentWordSet && currentTargetId) {
@@ -469,16 +496,23 @@ export default function GameScreen({ navigation, route }: Props) {
         const raw = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
         const parsed: Record<string, string[]> = raw ? JSON.parse(raw) : {};
         const list = parsed[currentWordSet.id] ?? [];
+
         if (!list.includes(currentTargetId)) {
           const updated = [...list, currentTargetId];
           parsed[currentWordSet.id] = updated;
-          await AsyncStorage.setItem(STORAGE_FOUND_WORDS, JSON.stringify(parsed));
+          await AsyncStorage.setItem(
+            STORAGE_FOUND_WORDS,
+            JSON.stringify(parsed)
+          );
           setFoundIds(updated);
-          console.log('💾 Слово добавлено в найденные:', currentTargetId);
+          console.log(
+            '💾 Слово добавлено в найденные:',
+            currentTargetId
+          );
         }
+
         chooseNextTarget(currentWordSet, parsed[currentWordSet.id]);
 
-        // показать карточку только что открытого слова
         if (unlockedWord) {
           setJustFoundWord(unlockedWord);
           setJustFoundVisible(true);
@@ -502,7 +536,6 @@ export default function GameScreen({ navigation, route }: Props) {
   // ========================================
   // 🐛 DEBUG
   // ========================================
-
   const debugActions = {
     moveLeft: () => actions.moveTetromino(-1, 0),
     moveRight: () => actions.moveTetromino(1, 0),
@@ -524,19 +557,20 @@ export default function GameScreen({ navigation, route }: Props) {
     spawnNew: () => actions.spawnNew(),
   };
 
-  const recognitionBoard = React.useMemo(() => {
-    return gameState.board.map(row =>
-      row.map(cell => ({
-        letter: cell?.letter ?? '',
-        tetrominoId: (cell as any)?.tetrominoId ?? null,
-      }))
-    );
-  }, [gameState.board]);
+  const recognitionBoard = React.useMemo(
+    () =>
+      gameState.board.map((row) =>
+        row.map((cell) => ({
+          letter: cell?.letter ?? '',
+          tetrominoId: (cell as any)?.tetrominoId ?? null,
+        }))
+      ),
+    [gameState.board]
+  );
 
   // ========================================
   // 🎨 РЕНДЕРИНГ
   // ========================================
-
   return (
     <ImageBackground
       source={require('../../assets/images/blue_darkblue_bgshort.png')}
@@ -570,15 +604,23 @@ export default function GameScreen({ navigation, route }: Props) {
 
         {/* Кнопки управления */}
         <View style={controls.container}>
-          <TouchableOpacity onPress={handlePause} style={controls.button}>
+          <TouchableOpacity
+            onPress={handlePause}
+            style={controls.button}
+          >
             <MaterialCommunityIcons
-              name={gameState.isPaused ? 'play-box-outline' : 'pause-box-outline'}
+              name={
+                gameState.isPaused ? 'play-box-outline' : 'pause-box-outline'
+              }
               size={28}
               color="white"
             />
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setShowDebug(!showDebug)} style={controls.button}>
+          <TouchableOpacity
+            onPress={() => setShowDebug(!showDebug)}
+            style={controls.button}
+          >
             <MaterialCommunityIcons
               name="bug"
               size={28}
@@ -589,13 +631,24 @@ export default function GameScreen({ navigation, route }: Props) {
 
         {/* Игровая площадка */}
         <View style={gameArea.container}>
+          {/* Правая панель */}
           <View style={gameArea.rightPanel}>
             <View style={gameArea.section}>
               <Text style={gameArea.sectionTitle}>КАРМАН</Text>
               <TouchableOpacity
                 onPress={handleHold}
-                disabled={!gameState.canHold || isControlsDisabled || gameState.isPaused}
-                style={(!gameState.canHold || isControlsDisabled || gameState.isPaused) && gameArea.disabled}
+                disabled={
+                  !gameState.canHold ||
+                  isControlsDisabled ||
+                  gameState.isPaused
+                }
+                style={
+                  !gameState.canHold ||
+                  isControlsDisabled ||
+                  gameState.isPaused
+                    ? gameArea.disabled
+                    : undefined
+                }
               >
                 <TetrominoBox
                   tetromino={gameState.heldTetromino}
@@ -623,11 +676,18 @@ export default function GameScreen({ navigation, route }: Props) {
               <TouchableOpacity
                 onPress={handleActivateRecognitionMode}
                 disabled={gameState.isGameOver}
-                style={gameState.isGameOver && gameArea.disabled}
+                style={
+                  gameState.isGameOver ? gameArea.disabled : undefined
+                }
               >
                 <Text style={gameArea.sectionTitle}>🔍 СЛОВО</Text>
                 {recognitionModeActive && (
-                  <Text style={[gameArea.sectionTitle, { fontSize: 10 }]}>
+                  <Text
+                    style={[
+                      gameArea.sectionTitle,
+                      { fontSize: 10 },
+                    ]}
+                  >
                     {recognitionTimer}s
                   </Text>
                 )}
@@ -635,7 +695,11 @@ export default function GameScreen({ navigation, route }: Props) {
             </View>
           </View>
 
-          <View style={gameArea.center} {...touchControls.panHandlers}>
+          {/* Центр с игрой */}
+          <View
+            style={gameArea.center}
+            {...touchControls.panHandlers}
+          >
             <TetrisBoard
               board={gameState.board}
               currentTetromino={gameState.currentTetromino}
@@ -655,38 +719,68 @@ export default function GameScreen({ navigation, route }: Props) {
           <View style={debugPanel.container}>
             <Text style={debugPanel.title}>DEBUG PANEL</Text>
             <View style={debugPanel.row}>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveLeft}>
-                <Text>←</Text>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.moveLeft}
+              >
+                <Text>{'<-'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveRight}>
-                <Text>→</Text>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.moveRight}
+              >
+                <Text>{'->'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.moveDown}>
-                <Text>↓</Text>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.moveDown}
+              >
+                <Text>{'v'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.rotate}>
-                <Text>↻</Text>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.rotate}
+              >
+                <Text>ROT</Text>
               </TouchableOpacity>
             </View>
             <View style={debugPanel.row}>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.addLine}>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.addLine}
+              >
                 <Text>+1 Line</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.addLevel}>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.addLevel}
+              >
                 <Text>+1 Level</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.addScore}>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.addScore}
+              >
                 <Text>+100 Score</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.spawnNew}>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.spawnNew}
+              >
                 <Text>New Fig</Text>
               </TouchableOpacity>
             </View>
             <View style={debugPanel.row}>
-              <TouchableOpacity style={debugPanel.button} onPress={debugActions.toggleHold}>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={debugActions.toggleHold}
+              >
                 <Text>Hold: {gameState.canHold ? 'ON' : 'OFF'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={debugPanel.button} onPress={handleRestart}>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={handleRestart}
+              >
                 <Text>Restart</Text>
               </TouchableOpacity>
             </View>
@@ -694,28 +788,36 @@ export default function GameScreen({ navigation, route }: Props) {
         )}
 
         {/* Меню паузы */}
-        <Modal
-          visible={showPauseMenu}
-          transparent
-          animationType="fade"
-        >
+        <Modal visible={showPauseMenu} transparent animationType="fade">
           <View style={pauseMenu.overlay}>
             <View style={pauseMenu.container}>
               <Text style={pauseMenu.title}>ПАУЗА</Text>
 
-              <TouchableOpacity style={pauseMenu.button} onPress={handlePause}>
+              <TouchableOpacity
+                style={pauseMenu.button}
+                onPress={handlePause}
+              >
                 <Text style={pauseMenu.buttonText}>ПРОДОЛЖИТЬ</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={pauseMenu.button} onPress={handleRestart}>
+              <TouchableOpacity
+                style={pauseMenu.button}
+                onPress={handleRestart}
+              >
                 <Text style={pauseMenu.buttonText}>ЗАНОВО</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={pauseMenu.button} onPress={handleExitRequest}>
+              <TouchableOpacity
+                style={pauseMenu.button}
+                onPress={handleExitRequest}
+              >
                 <Text style={pauseMenu.buttonText}>ГЛАВНОЕ МЕНЮ</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={pauseMenu.button} onPress={() => setShowDebug(true)}>
+              <TouchableOpacity
+                style={pauseMenu.button}
+                onPress={() => setShowDebug(true)}
+              >
                 <Text style={pauseMenu.buttonText}>DEBUG</Text>
               </TouchableOpacity>
             </View>
@@ -723,11 +825,7 @@ export default function GameScreen({ navigation, route }: Props) {
         </Modal>
 
         {/* Диалог выхода */}
-        <Modal
-          visible={showExitConfirm}
-          transparent
-          animationType="fade"
-        >
+        <Modal visible={showExitConfirm} transparent animationType="fade">
           <View style={exitConfirmModal.overlay}>
             <View style={exitConfirmModal.container}>
               <Text style={exitConfirmModal.title}>Сохранить игру?</Text>
@@ -735,87 +833,100 @@ export default function GameScreen({ navigation, route }: Props) {
                 Вы можете продолжить позже, если сохраните.
               </Text>
 
-              <TouchableOpacity style={exitConfirmModal.button} onPress={handleExitWithSave}>
-                <Text style={exitConfirmModal.buttonText}>💾 СОХРАНИТЬ И ВЫЙТИ</Text>
+              <TouchableOpacity
+                style={exitConfirmModal.button}
+                onPress={handleExitWithSave}
+              >
+                <Text style={exitConfirmModal.buttonText}>
+                  💾 СОХРАНИТЬ И ВЫЙТИ
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={exitConfirmModal.button} onPress={handleExitWithoutSave}>
-                <Text style={exitConfirmModal.buttonText}>ВЫЙТИ БЕЗ СОХРАНЕНИЯ</Text>
+              <TouchableOpacity
+                style={exitConfirmModal.button}
+                onPress={handleExitWithoutSave}
+              >
+                <Text style={exitConfirmModal.buttonText}>
+                  ВЫЙТИ БЕЗ СОХРАНЕНИЯ
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={exitConfirmModal.cancelButton}
                 onPress={() => setShowExitConfirm(false)}
               >
-                <Text style={exitConfirmModal.cancelButtonText}>ОТМЕНА</Text>
+                <Text style={exitConfirmModal.cancelButtonText}>
+                  ОТМЕНА
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
         </Modal>
-      </View>
 
-      {/* Game Over */}
-      <Modal
-        visible={gameState.isGameOver}
-        transparent
-        animationType="fade"
-      >
-        <View style={gameOverModal.overlay}>
-          <View style={gameOverModal.container}>
-            <Text style={gameOverModal.title}>ИГРА ОКОНЧЕНА</Text>
-
-            <View style={gameOverModal.statsContainer}>
-              <View style={gameOverModal.statRow}>
-                <Text style={gameOverModal.statLabel}>ОЧКИ:</Text>
-                <Text style={gameOverModal.statValue}>{gameState.score}</Text>
+        {/* Game Over */}
+        <Modal visible={gameState.isGameOver} transparent animationType="fade">
+          <View style={gameOverModal.overlay}>
+            <View style={gameOverModal.container}>
+              <Text style={gameOverModal.title}>ИГРА ОКОНЧЕНА</Text>
+              <View style={gameOverModal.statsContainer}>
+                <View style={gameOverModal.statRow}>
+                  <Text style={gameOverModal.statLabel}>ОЧКИ:</Text>
+                  <Text style={gameOverModal.statValue}>
+                    {gameState.score}
+                  </Text>
+                </View>
+                <View style={gameOverModal.statRow}>
+                  <Text style={gameOverModal.statLabel}>УРОВЕНЬ:</Text>
+                  <Text style={gameOverModal.statValue}>
+                    {gameState.level}
+                  </Text>
+                </View>
+                <View style={gameOverModal.statRow}>
+                  <Text style={gameOverModal.statLabel}>ЛИНИИ:</Text>
+                  <Text style={gameOverModal.statValue}>
+                    {gameState.linesCleared}
+                  </Text>
+                </View>
               </View>
 
-              <View style={gameOverModal.statRow}>
-                <Text style={gameOverModal.statLabel}>УРОВЕНЬ:</Text>
-                <Text style={gameOverModal.statValue}>{gameState.level}</Text>
-              </View>
+              <TouchableOpacity
+                style={gameOverModal.button}
+                onPress={handleRestart}
+              >
+                <Text style={gameOverModal.buttonText}>ИГРАТЬ ЗАНОВО</Text>
+              </TouchableOpacity>
 
-              <View style={gameOverModal.statRow}>
-                <Text style={gameOverModal.statLabel}>ЛИНИИ:</Text>
-                <Text style={gameOverModal.statValue}>{gameState.linesCleared}</Text>
-              </View>
+              <TouchableOpacity
+                style={gameOverModal.cancelButton}
+                onPress={handleExitRequest}
+              >
+                <Text style={gameOverModal.cancelButtonText}>
+                  В ГЛАВНОЕ МЕНЮ
+                </Text>
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              style={gameOverModal.button}
-              onPress={handleRestart}
-            >
-              <Text style={gameOverModal.buttonText}>ИГРАТЬ ЗАНОВО</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={gameOverModal.cancelButton}
-              onPress={handleExitRequest}
-            >
-              <Text style={gameOverModal.cancelButtonText}>В ГЛАВНОЕ МЕНЮ</Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* Карточка только что найденного слова */}
-      <WordCard
-        visible={justFoundVisible}
-        word={justFoundWord}
-        onClose={() => {
-          setJustFoundVisible(false);
-          setJustFoundWord(null);
-        }}
-      />
+        {/* Карточка только что найденного слова */}
+        <WordCard
+          visible={justFoundVisible}
+          word={justFoundWord}
+          onClose={() => {
+            setJustFoundVisible(false);
+            setJustFoundWord(null);
+          }}
+        />
 
-      {/* Режим разгадывания */}
-      <RecognitionModeOverlay
-        isVisible={recognitionModeActive}
-        board={recognitionBoard}
-        timerRemaining={recognitionTimer}
-        onClose={handleRecognitionClose}
-        onTimerTick={() => setRecognitionTimer(120)}
-      />
+        {/* Режим разгадывания */}
+        <RecognitionModeOverlay
+          isVisible={recognitionModeActive}
+          board={recognitionBoard}
+          timerRemaining={recognitionTimer}
+          onClose={handleRecognitionClose}
+          onTimerTick={() => setRecognitionTimer(120)}
+        />
+      </View>
     </ImageBackground>
   );
 }
@@ -823,7 +934,6 @@ export default function GameScreen({ navigation, route }: Props) {
 // ========================================
 // 🎨 СТИЛИ
 // ========================================
-
 const styles = StyleSheet.create({
   backgroundImage: {
     flex: 1,
