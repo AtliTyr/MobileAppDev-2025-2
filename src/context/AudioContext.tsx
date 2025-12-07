@@ -37,10 +37,11 @@ interface AudioSettings {
  * Определяет доступные методы и состояние для работы с аудио настройками
  */
 interface AudioContextType {
-  audioSettings: AudioSettings;                              // Текущие настройки
-  updateSettings: (settings: Partial<AudioSettings>) => void; // Обновить настройки
-  resetSettings: () => void;                                 // Вернуть настройки по умолчанию
-  getSettingsForDisplay: () => AudioSettings;               // Получить текущие настройки
+  audioSettings: AudioSettings;
+  updateSettings: (settings: Partial<AudioSettings>) => void;
+  resetSettings: () => void;
+  getSettingsForDisplay: () => AudioSettings;
+  getDefaultSettings: () => AudioSettings;
 }
 
 // ========================================
@@ -151,11 +152,14 @@ export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) =
    * 
    * Передаётся через value в Provider
    */
+  const getDefaultSettings = (): AudioSettings => defaultSettings;
+
   const value: AudioContextType = {
-    audioSettings,           // Текущие настройки
-    updateSettings,          // Функция обновления
-    resetSettings,           // Функция сброса
-    getSettingsForDisplay,  // Функция получения
+    audioSettings,
+    updateSettings,
+    resetSettings,
+    getSettingsForDisplay,
+    getDefaultSettings,
   };
 
   // ========================================
