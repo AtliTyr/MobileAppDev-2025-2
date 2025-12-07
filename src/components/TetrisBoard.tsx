@@ -1,8 +1,9 @@
 // src/components/TetrisBoard.tsx
 import React from 'react';
-import { View, StyleSheet, ViewStyle, Text } from 'react-native';
+import { View, StyleSheet, ViewStyle, Text, TextStyle } from 'react-native';
 import { GameBoard } from '../types/game';
 import { Tetromino } from '../types/tetromino';
+import { getLetterStyleForColor } from '../utils/textColor';
 
 interface Props {
   board: GameBoard;
@@ -15,25 +16,32 @@ const COLS = 10;
 
 export default function TetrisBoard({ board, currentTetromino, style }: Props) {
   const renderCell = (row: number, col: number) => {
-    // Проверяем, находится ли клетка в текущей тетромино
+    // Текущая падающая фигура
     if (currentTetromino) {
       const { x, y } = currentTetromino.position;
-      
+
       for (let i = 0; i < currentTetromino.cells.length; i++) {
         for (let j = 0; j < currentTetromino.cells[i].length; j++) {
-          if (currentTetromino.cells[i][j].isEmpty) continue;
-          
+          const cellData = currentTetromino.cells[i][j];
+          if (cellData.isEmpty) continue;
+
           if (row === y + i && col === x + j) {
+            const letterStyle = getLetterStyleForColor(cellData.color);
+
             return (
-              <View 
-                key={`${row}-${col}`} 
+              <View
+                key={`${row}-${col}`}
                 style={[
-                  styles.cell, 
-                  { backgroundColor: currentTetromino.cells[i][j].color }
+                  styles.cell,
+                  { backgroundColor: cellData.color },
+                  {
+                    borderWidth: 0.5,
+                    borderColor: '#333333',
+                  },
                 ]}
               >
-                <Text style={styles.letter}>
-                  {currentTetromino.cells[i][j].letter}
+                <Text style={[styles.letter, letterStyle]}>
+                  {cellData.letter}
                 </Text>
               </View>
             );
@@ -42,15 +50,24 @@ export default function TetrisBoard({ board, currentTetromino, style }: Props) {
       }
     }
 
-    // Проверяем статичные клетки на поле
+    // Статичная клетка на поле
     const cell = board[row]?.[col];
     if (cell) {
+      const letterStyle = getLetterStyleForColor(cell.color);
+
       return (
-        <View 
-          key={`${row}-${col}`} 
-          style={[styles.cell, { backgroundColor: cell.color }]}
+        <View
+          key={`${row}-${col}`}
+          style={[
+            styles.cell,
+            { backgroundColor: cell.color },
+            {
+              borderWidth: 0.5,
+              borderColor: '#333333',
+            },
+          ]}
         >
-          <Text style={styles.letter}>
+          <Text style={[styles.letter, letterStyle]}>
             {cell.letter}
           </Text>
         </View>
@@ -59,18 +76,25 @@ export default function TetrisBoard({ board, currentTetromino, style }: Props) {
 
     // Пустая клетка
     return (
-      <View key={`${row}-${col}`} style={[styles.cell, styles.emptyCell]} />
+      <View
+        key={`${row}-${col}`}
+        style={[styles.cell, styles.emptyCell]}
+      />
     );
   };
 
   return (
     <View style={[styles.boardOuter, style]}>
       <View style={styles.boardInner}>
-        {Array(ROWS).fill(0).map((_, row) => (
-          <View key={row} style={styles.row}>
-            {Array(COLS).fill(0).map((_, col) => renderCell(row, col))}
-          </View>
-        ))}
+        {Array(ROWS)
+          .fill(0)
+          .map((_, row) => (
+            <View key={row} style={styles.row}>
+              {Array(COLS)
+                .fill(0)
+                .map((_, col) => renderCell(row, col))}
+            </View>
+          ))}
       </View>
     </View>
   );
@@ -83,7 +107,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.6,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
-    backgroundColor: '#000000',
+    backgroundColor: '#6096BA',
   },
   boardInner: {
     borderWidth: 1,
@@ -95,17 +119,13 @@ const styles = StyleSheet.create({
   cell: {
     width: 25,
     height: 25,
-    borderWidth: 0.5,
-    borderColor: '#333333',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emptyCell: {
-    backgroundColor: '#111111',
-  },
+  emptyCell: {},
   letter: {
-    color: '#FFFFFF',
-    fontSize: 10,
     fontWeight: 'bold',
+    fontSize: 10,
+    // базовые параметры, цвет и тень сверху переопределяем через getLetterStyleForColor
   },
 });

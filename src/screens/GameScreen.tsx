@@ -50,7 +50,7 @@ export default function GameScreen({ navigation, route }: Props) {
   const savedGameData = route.params?.savedGameData;
   const routeWordSetId = route.params?.wordSetId;
 
-  const { saveGame, clearSavedGame } = useGamePersistence();
+  const { saveGame, clearSavedGame, getStats, updateStats, resetStats } = useGamePersistence();
   const { playSound, playBackgroundMusic, stopBackgroundMusic } =
     useAudioManager();
 
@@ -65,6 +65,19 @@ export default function GameScreen({ navigation, route }: Props) {
   const [recognitionModeActive, setRecognitionModeActive] = useState(false);
   const [recognitionTimer, setRecognitionTimer] = useState(120);
   const [selectedPath, setSelectedPath] = useState<LetterPosition[]>([]);
+
+
+  const [bestScore, setBestScore] = useState(0);
+
+  useEffect(() => {
+    const loadBest = async () => {
+      const stats = await getStats();
+      if (stats && typeof stats.bestScore === 'number') {
+        setBestScore(stats.bestScore);
+      }
+    };
+    loadBest();
+  }, [getStats]);
 
   // ✨ Наборы слов
   const [currentWordSet, setCurrentWordSet] = useState<WordSet | null>(null);
@@ -87,6 +100,27 @@ export default function GameScreen({ navigation, route }: Props) {
     effectiveConfig,
     undefined
   );
+
+  useEffect(() => {
+    if (!gameState.isGameOver) return;
+
+    const applyStats = async () => {
+      await updateStats(
+        gameState.score,
+        gameState.level,
+        gameState.linesCleared,
+        gameState.wordsFormed
+      );
+
+      // сразу подхватить новое значение bestScore
+      const stats = await getStats();
+      if (stats && typeof stats.bestScore === 'number') {
+        setBestScore(stats.bestScore);
+      }
+    };
+
+    applyStats();
+  }, [gameState.isGameOver]);
 
   // ✨ Карточка только что найденного слова
   const [justFoundWord, setJustFoundWord] = useState<WordData | null>(null);
@@ -553,6 +587,7 @@ export default function GameScreen({ navigation, route }: Props) {
       actions.levelUp();
     },
     addScore: () => actions.addScore(100),
+    addScoreCustom: (score: number) => actions.addScore(score),
     toggleHold: () => actions.setCanHold(!gameState.canHold),
     spawnNew: () => actions.spawnNew(),
   };
@@ -582,59 +617,104 @@ export default function GameScreen({ navigation, route }: Props) {
 
         {/* Панель статистики */}
         <View style={statPanel.container}>
-          <View style={statPanel.box}>
-            <Text style={statPanel.label}>ЛИНИИ</Text>
-            <Text style={statPanel.value}>{gameState.linesCleared}</Text>
+          <View style={statPanel.leftContainer}>
+            <View style={statPanel.leftInnerContainer}>
+              <View style={statPanel.box}>
+                <Text style={statPanel.label}>ЛИНИИ</Text>
+                <Text style={statPanel.value}>{gameState.linesCleared}</Text>
+              </View>
+              <View style={statPanel.box}>
+                <Text style={statPanel.label}>УРОВЕНЬ</Text>
+                <Text style={statPanel.value}>{gameState.level}</Text>
+              </View>
+            </View>
+            <View style={statPanel.targetBox}>
+              <Text style={statPanel.label}>ЦЕЛЬ</Text>
+              <View style={statPanel.targetValueWrapper}>
+                <Text
+                  style={statPanel.targetValue}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  // adjustsFontSizeToFit
+                  minimumFontScale={0.6}
+                >
+                  {currentTargetWord ?? '—'}
+                </Text>
+              </View>
+            </View>
+
+
           </View>
-          <View style={statPanel.box}>
-            <Text style={statPanel.label}>УРОВЕНЬ</Text>
-            <Text style={statPanel.value}>{gameState.level}</Text>
-          </View>
-          <View style={statPanel.box}>
-            <Text style={statPanel.label}>ОЧКИ</Text>
-            <Text style={statPanel.value}>{gameState.score}</Text>
-          </View>
-          <View style={statPanel.box}>
-            <Text style={statPanel.label}>ЦЕЛЬ</Text>
-            <Text style={statPanel.value}>
-              {currentTargetWord ?? '—'}
-            </Text>
+          <View style={statPanel.scoreBox}>
+            {gameState.score < bestScore ? (
+              <>
+              <Text style={statPanel.scoreLabel}>{ bestScore }</Text>
+              <Text style={statPanel.scoreValue}>{gameState.score}</Text>
+              </>
+            ) : (
+              <Text style={statPanel.bestScoreValue}>👑 {gameState.score}</Text>
+
+            )}
+            
           </View>
         </View>
+          
 
-        {/* Кнопки управления */}
-        <View style={controls.container}>
-          <TouchableOpacity
-            onPress={handlePause}
-            style={controls.button}
-          >
-            <MaterialCommunityIcons
-              name={
-                gameState.isPaused ? 'play-box-outline' : 'pause-box-outline'
-              }
-              size={28}
-              color="white"
-            />
-          </TouchableOpacity>
+        <View style={topControls.container}>
+          {/* Слева: пауза + debug */}
+          <View style={pausePanel.container}>
+            <TouchableOpacity
+              onPress={handlePause}
+              style={controls.button}
+            >
+              <MaterialCommunityIcons
+                name={gameState.isPaused ? 'play-box-outline' : 'pause-box-outline'}
+                size={28}
+                color="#111"
+                style={pausePanel.pauseIcon}
+              />
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => setShowDebug(!showDebug)}
-            style={controls.button}
-          >
-            <MaterialCommunityIcons
-              name="bug"
-              size={28}
-              color="white"
-            />
-          </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowDebug(!showDebug)}
+              style={controls.button}
+            >
+              <MaterialCommunityIcons
+                name="bug"
+                size={28}
+                color="#111"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Справа: поиск слова */}
+          <View style={searchPanel.container}>
+            <TouchableOpacity
+              onPress={handleActivateRecognitionMode}
+              disabled={gameState.isGameOver}
+              style={[gameState.isGameOver ? gameArea.disabled : undefined, controls.button]}
+            >
+              <Text style={searchPanel.searchText}>🔍 СЛОВО</Text>
+              {recognitionModeActive && (
+                <Text
+                  style={[
+                    gameArea.sectionTitle,
+                    { fontSize: 28 },
+                  ]}
+                >
+                  {recognitionTimer}s
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Игровая площадка */}
         <View style={gameArea.container}>
           {/* Правая панель */}
           <View style={gameArea.rightPanel}>
-            <View style={gameArea.section}>
-              <Text style={gameArea.sectionTitle}>КАРМАН</Text>
+            <View style={[gameArea.box, {width: 75}]}>
+              <Text style={gameArea.label}>КАРМАН</Text>
               <TouchableOpacity
                 onPress={handleHold}
                 disabled={
@@ -652,14 +732,14 @@ export default function GameScreen({ navigation, route }: Props) {
               >
                 <TetrominoBox
                   tetromino={gameState.heldTetromino}
-                  size="medium"
                   showLetters={true}
+                  containerStyle={{backgroundColor: '#6096BA'}}
                 />
               </TouchableOpacity>
             </View>
 
-            <View style={gameArea.section}>
-              <Text style={gameArea.sectionTitle}>СЛЕДУЮЩИЕ</Text>
+            <View style={gameArea.box}>
+              <Text style={gameArea.label}>СЛЕДУЮЩИЕ</Text>
               <View style={gameArea.nextFigures}>
                 {gameState.nextTetrominos.slice(0, 3).map((tetromino, index) => (
                   <TetrominoBox
@@ -670,28 +750,6 @@ export default function GameScreen({ navigation, route }: Props) {
                   />
                 ))}
               </View>
-            </View>
-
-            <View style={gameArea.section}>
-              <TouchableOpacity
-                onPress={handleActivateRecognitionMode}
-                disabled={gameState.isGameOver}
-                style={
-                  gameState.isGameOver ? gameArea.disabled : undefined
-                }
-              >
-                <Text style={gameArea.sectionTitle}>🔍 СЛОВО</Text>
-                {recognitionModeActive && (
-                  <Text
-                    style={[
-                      gameArea.sectionTitle,
-                      { fontSize: 10 },
-                    ]}
-                  >
-                    {recognitionTimer}s
-                  </Text>
-                )}
-              </TouchableOpacity>
             </View>
           </View>
 
@@ -765,6 +823,18 @@ export default function GameScreen({ navigation, route }: Props) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={debugPanel.button}
+                onPress={() => debugActions.addScoreCustom(1000)}
+              >
+                <Text>+1000 Score</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={() => debugActions.addScoreCustom(1000000)}
+              >
+                <Text>+10000 Score</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={debugPanel.button}
                 onPress={debugActions.spawnNew}
               >
                 <Text>New Fig</Text>
@@ -782,6 +852,12 @@ export default function GameScreen({ navigation, route }: Props) {
                 onPress={handleRestart}
               >
                 <Text>Restart</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={debugPanel.button}
+                onPress={resetStats}
+              >
+                <Text>Reset score</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -949,32 +1025,178 @@ const styles = StyleSheet.create({
 
 const statPanel = StyleSheet.create({
   container: {
+    backgroundColor: '#A3CEF1',
     flexDirection: 'row',
-    padding: 12,
-    marginHorizontal: 10,
-    marginTop: 10,
+    paddingHorizontal: '8%',
+    paddingTop: '10%',
+    paddingBottom: '5%',
+    width: '110%',
+    left: '-5%',
+    top: '-3%',
+    gap: 16,
+    alignItems: 'flex-start',
+    transform: [{ rotate: '-5deg' }],
     marginBottom: 5,
-    borderWidth: 2,
-    borderColor: '#333',
-    borderRadius: 8,
-    backgroundColor: '#f8f8f8',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    height: '19.5%',
+  },
+  leftContainer: {
+    flexDirection: 'column',
+    width: '50%',
+    height: '90%',
+    top: '-5%',
+    gap: 8,
+  },
+  leftInnerContainer: {
+    flexDirection: 'row',
+    gap: 16,
+    width: '100%',
   },
   box: {
     flex: 1,
-    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    alignSelf: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#0D1B2A',
   },
+
+  targetBox: {
+    width: '100%',
+    // убираем flex/height/top/transform тут
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    backgroundColor: '#0D1B2A', // тот же цвет, что и label
+    overflow: 'hidden',
+  },
+
   label: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
-    color: '#666',
-  },
-  value: {
-    fontSize: 16,
+    backgroundColor: '#0D1B2A',
+    color: '#E7ECEF',
+    textAlign: 'center',
+    fontFamily: 'Unbounded',
     fontWeight: 'bold',
-    color: '#333',
+    fontSize: 13,
+    paddingVertical: 2,
+  },
+
+  targetValueWrapper: {
+    backgroundColor: '#6096BA',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+
+  targetValue: {
+    color: '#111',
+    textAlign: 'center',
+    fontSize: 22,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+  },
+
+  scoreBox: {
+    alignSelf: 'center',
+    width: '45%',
+    top: '10%',
+    borderColor: '#0D1B2A',
+    borderWidth: 2,
+    backgroundColor: '#A3CEF1',
+  },
+  // label: {
+  //   backgroundColor: '#0D1B2A',
+  //   color: '#E7ECEF',
+  //   textAlign: 'center',
+  //   fontFamily: 'Unbounded',
+  //   fontWeight: 'bold',
+  //   fontSize: 13,
+  // },
+  value: {
+    backgroundColor: '#6096BA',
+    textAlign: 'center',
+    fontSize: 22,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+  },
+  scoreLabel: {
+    backgroundColor: '#0D1B2A',
+    textAlign: 'center',
+    fontSize: 18,
+    color: '#E7ECEF',
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+  },
+  scoreValue: {
+    color: '#111',
+    textAlign: 'center',
+    fontSize: 24,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+  },
+  bestScoreValue: {
+    color: '#111',
+    textAlign: 'center',
+    fontSize: 30,
+    fontWeight: 'bold',
+    fontFamily: 'Unbounded',
   },
 });
+
+
+const topControls = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    justifyContent: 'space-between', // слева/справа
+    alignItems: 'center',            // одна высота по вертикали
+    // paddingHorizontal: 16,
+    width: '110%',
+    left: '-5%',
+    marginBottom: 10,
+  },
+});
+
+const pausePanel = StyleSheet.create({
+  container: {
+    backgroundColor: '#A3CEF1',
+    // paddingHorizontal: 8,
+    // paddingVertical: 4,
+    marginLeft: 16,
+    borderWidth: 3,
+    flexDirection: 'row',
+    // justifyContent: 'center',
+    // gap: 6,
+    transform: [{ rotate: '-5deg' }],
+  },
+  pauseIcon: {
+    // можно чуть подвинуть иконку внутри, но без процентов
+    // marginLeft: 10,
+  },
+});
+
+const searchPanel = StyleSheet.create({
+  container: {
+    backgroundColor: '#A3CEF1',
+    // paddingHorizontal: 8,
+    // paddingVertical: 4,
+    // marginLeft: 8,
+    width: '25%',
+    borderWidth: 3,
+    flexDirection: 'row',
+    top: '-55%',
+    marginRight: 16,
+    // justifyContent: 'center',
+    // gap: 6,
+    transform: [{ rotate: '-5deg' }],
+  },
+  searchText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    // marginBottom: 8,
+    color: '#111',
+    textAlign: 'center',
+  }
+});
+
 
 const controls = StyleSheet.create({
   container: {
@@ -999,9 +1221,14 @@ const gameArea = StyleSheet.create({
   center: {
     flex: 1,
     alignItems: 'center',
+    marginTop: 5,
+    marginLeft: 15,
   },
   rightPanel: {
+    marginTop: 10,
+    gap: 20,
     width: 80,
+    alignItems: 'center'
   },
   section: {
     alignItems: 'center',
@@ -1016,10 +1243,27 @@ const gameArea = StyleSheet.create({
   },
   nextFigures: {
     alignItems: 'center',
-    gap: 2,
+    // gap: 2,
   },
   disabled: {
     opacity: 0.4,
+  },
+  box: {
+    outlineWidth: 3,
+    outlineColor: '#0D1B2A',
+
+    backgroundColor: '#6096BA',
+    width: 65,
+    minHeight: 65,
+  },
+  label: {
+    backgroundColor: '#0D1B2A',
+    color: '#E7ECEF',
+    textAlign: 'center',
+    fontFamily: 'Unbounded',
+    fontSize: 10,
+    fontWeight: 'bold',
+    padding: 1
   },
 });
 

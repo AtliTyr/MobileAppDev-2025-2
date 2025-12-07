@@ -197,11 +197,35 @@ export const useGamePersistence = () => {
     []
   );
 
+  const getStats = useCallback(async (): Promise<PlayerStats | null> => {
+    try {
+      const statsJson = await AsyncStorage.getItem(STORAGE_KEYS.STATS);
+      if (!statsJson) return null;
+      const stats: PlayerStats = JSON.parse(statsJson);
+      return stats;
+    } catch (error) {
+      console.error('❌ Error loading stats:', error);
+      return null;
+    }
+  }, []);
+
+  const resetStats = useCallback(async (): Promise<void> => {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.STATS);
+      console.log('✅ Stats reset');
+    } catch (error) {
+      console.error('❌ Error resetting stats:', error);
+      throw error;
+    }
+  }, []);
+
   return {
     saveGame,
     loadGame,
     hasSavedGame,
     clearSavedGame,
     updateStats,
+    getStats,
+    resetStats,
   };
 };
