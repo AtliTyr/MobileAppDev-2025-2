@@ -9,6 +9,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import PrimaryButton from '../components/PrimaryButton';
 import { useGamePersistence } from '../hooks/useGamePersistence';
 import { RootStackParamList } from '../../App';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {

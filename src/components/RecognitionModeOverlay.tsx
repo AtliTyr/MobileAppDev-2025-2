@@ -1,3 +1,4 @@
+// src/components/RecognitionModeOverlay.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -24,8 +25,9 @@ interface RecognitionModeOverlayProps {
   onTimerTick: () => void;
 }
 
-// Размер ячейки: ИСПОЛЬЗУЕМ и для верстки, и для расчёта координат
+// Размер ячейки
 const CELL_SIZE = 30;
+const BOARD_Y_OFFSET = CELL_SIZE; // 30
 
 export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
   isVisible,
@@ -36,23 +38,15 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
 }) => {
   const safeBoard: Board = Array.isArray(board) ? board : [];
 
-  const {
-    startPath,
-    addToPath,
-    getPath,
-    clearPath,
-  } = useWordRecognition(safeBoard); // твой хук [file:69]
+  const { startPath, addToPath, getPath, clearPath } =
+    useWordRecognition(safeBoard); // [file:208]
 
   const [path, setPath] = useState<LetterPosition[]>([]);
   const [isSwiping, setIsSwiping] = useState(false);
 
   const boardRef = useRef<RNView | null>(null);
-  // Позиция борда на экране (координаты левого верхнего угла)
   const boardOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  // Чтобы не дёргать measure слишком рано
   const boardMeasuredRef = useRef(false);
-
   const lastCellRef = useRef<{ row: number; col: number } | null>(null);
 
   // Сброс пути при скрытии оверлея
@@ -62,32 +56,37 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
       setPath([]);
       setIsSwiping(false);
       lastCellRef.current = null;
+      boardMeasuredRef.current = false;
       console.log('🔄 Overlay скрыт, путь сброшен');
     }
   }, [isVisible, clearPath]);
 
-  // Замеряем позицию борда на экране (глобальные координаты)
   const measureBoardPosition = () => {
     if (!boardRef.current) return;
-
     boardRef.current.measureInWindow((x, y, width, height) => {
       boardOffsetRef.current = { x, y };
       boardMeasuredRef.current = true;
-      console.log('📐 BOARD OFFSET', { x, y, width, height });
+      console.log('BOARD OFFSET TOP', y, 'CELL_SIZE', CELL_SIZE);
     });
   };
 
-  const HIT_RADIUS = CELL_SIZE * 0.6; // 60% от клетки
+  const HIT_RADIUS = CELL_SIZE * 0.9;
 
+  // более мягкий выбор клетки
   const getCellFromPoint = (x: number, y: number) => {
     const rows = safeBoard.length;
     const cols = rows > 0 ? safeBoard[0].length : 0;
     if (!rows || !cols) return null;
 
-    const approxCol = Math.round((x - CELL_SIZE / 2) / CELL_SIZE);
-    const approxRow = Math.round((y - CELL_SIZE / 2) / CELL_SIZE);
+    const approxCol = Math.floor(x / CELL_SIZE);
+    const approxRow = Math.floor(y / CELL_SIZE);
 
-    if (approxCol < 0 || approxCol >= cols || approxRow < 0 || approxRow >= rows) {
+    if (
+      approxCol < 0 ||
+      approxCol >= cols ||
+      approxRow < 0 ||
+      approxRow >= rows
+    ) {
       return null;
     }
 
@@ -98,7 +97,6 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
     const dist2 = dx * dx + dy * dy;
 
     if (dist2 > HIT_RADIUS * HIT_RADIUS) {
-      // Слишком далеко от центра — считаем промахом, не двигаем путь
       return null;
     }
 
@@ -109,9 +107,6 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
     const boardX = colIndex;
     const boardY = rowIndex;
     const cell = safeBoard[boardY]?.[boardX];
-
-    console.log('cell', boardX, boardY, cell);
-
     if (!cell || !cell.letter) return;
 
     const currentPath = getPath();
@@ -139,33 +134,26 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
   };
 
   const handlePointFromEvent = (evt: any) => {
-    const { pageX, pageY } = evt.nativeEvent; // глобальные координаты касания [web:76]
+    const { pageX, pageY } = evt.nativeEvent;
     const { x: boardX, y: boardY } = boardOffsetRef.current;
 
-    // Если по каким-то причинам ещё не замерили борд — попробуем замерить сейчас
     if (!boardMeasuredRef.current) {
-      console.log('⚠️ board not measured yet, measuring on the fly');
       measureBoardPosition();
       return;
     }
 
-    // Координаты касания в системе борда
     const relX = pageX - boardX;
-    const relY = pageY - boardY;
-
-    console.log('POINT', { pageX, pageY, relX, relY });
+    const relY = pageY - boardY - BOARD_Y_OFFSET; // <<< ключевая правка
 
     const cell = getCellFromPoint(relX, relY);
-    console.log('HIT CELL', cell);
-
     if (!cell) return;
 
     const last = lastCellRef.current;
     if (last && last.row === cell.row && last.col === cell.col) {
       return;
     }
-    lastCellRef.current = cell;
 
+    lastCellRef.current = cell;
     handleCellTouch(cell.row, cell.col);
   };
 
@@ -178,32 +166,34 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
       console.log('📝 Слово из режима разгадывания:', word);
       onClose(word);
     }
+
     clearPath();
     setPath([]);
     setIsSwiping(false);
     lastCellRef.current = null;
   };
 
-  // Создаём PanResponder на каждый рендер, чтобы коллбеки видели актуальный стейт [web:79]
   const panResponder: PanResponderInstance = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
+
     onPanResponderGrant: e => {
-      console.log('grant');
       setIsSwiping(true);
       clearPath();
       setPath([]);
       lastCellRef.current = null;
-      handlePointFromEvent(e); // опорная буква по нажатию
+      handlePointFromEvent(e); // старт
     },
+
     onPanResponderMove: e => {
       if (!isSwiping) return;
-      handlePointFromEvent(e); // расширение слова при движении
+      handlePointFromEvent(e); // продолжение
     },
+
     onPanResponderRelease: () => {
-      console.log('release');
       finishAndClose();
     },
+
     onPanResponderTerminate: () => {
       finishAndClose();
     },
@@ -212,82 +202,86 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
   if (!isVisible) return null;
 
   const composedWord = path.map(p => p.letter).join('');
+  const displayWord =
+    composedWord.length > 18
+      ? composedWord.slice(0, 18) + '…'
+      : composedWord;
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>🔍 РЕЖИМ РАЗГАДЫВАНИЯ</Text>
-      </View>
-
-      {/* Таймер */}
-      <View style={styles.timerContainer}>
-        <Text style={styles.timerLabel}>⏱️ Таймер:</Text>
-        <Text
-          style={[
-            styles.timerValue,
-            timerRemaining <= 1 && styles.timerWarning,
-          ]}
-        >
-          {timerRemaining.toFixed(1)} сек
-        </Text>
-      </View>
-
-      {/* Доска с буквами */}
-      <View style={styles.boardContainer}>
-        <View
-          style={styles.board}
-          ref={boardRef}
-          onLayout={() => {
-            console.log('BOARD onLayout -> measure');
-            measureBoardPosition();
-          }}
-          {...panResponder.panHandlers}
-        >
-          {safeBoard.map((row, rowIndex) => (
-            <View key={rowIndex} style={styles.boardRow}>
-              {row.map((cell, colIndex) => {
-                const pathIndex = path.findIndex(
-                  p => p.x === colIndex && p.y === rowIndex
-                );
-                const isInPath = pathIndex !== -1;
-
-                return (
-                  <View
-                    key={colIndex}
-                    style={[
-                      styles.cell,
-                      isInPath && styles.cellSelected,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.cellText,
-                        isInPath && styles.cellTextSelected,
-                      ]}
-                    >
-                      {cell.letter}
-                    </Text>
-                    {isInPath && (
-                      <View style={styles.pathNumber}>
-                        <Text style={styles.pathNumberText}>
-                          {pathIndex + 1}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
+      <View style={styles.cardShadow}>
+        {/* БЕЗ cardTilted */}
+        <View style={styles.card}>
+          {/* Заголовок + таймер */}
+          <View style={styles.headerBar}>
+            <Text style={styles.headerTitle}>🔍 НАЙДИТЕ СЛОВО</Text>
+            <View style={styles.headerTimer}>
+              <Text style={styles.headerTimerLabel}>⏱</Text>
+              <Text
+                style={[
+                  styles.headerTimerValue,
+                  timerRemaining <= 10 ? styles.headerTimerWarning : null,
+                ]}
+              >
+                {timerRemaining.toFixed(1)}s
+              </Text>
             </View>
-          ))}
-        </View>
-      </View>
+          </View>
 
-      {/* Информация о слове */}
-      <View style={styles.infoContainer}>
-        <Text style={styles.infoLabel}>Составленное слово:</Text>
-        <Text style={styles.infoWord}>{composedWord || '(нет)'}</Text>
-        <Text style={styles.infoCount}>Букв: {path.length}</Text>
+          {/* Доска с буквами */}
+          <View style={styles.boardOuter}>
+            <RNView
+              ref={boardRef}
+              style={styles.board}
+              onLayout={() => {
+                console.log('BOARD onLayout -> measure');
+                measureBoardPosition();
+              }}
+              {...panResponder.panHandlers}
+            >
+                {safeBoard.map((row, rowIndex) => (
+                  <View key={rowIndex} style={styles.boardRow}>
+                    {row.map((cell, colIndex) => {
+                      const pathIndex = path.findIndex(
+                        p => p.x === colIndex && p.y === rowIndex
+                      );
+                      const isInPath = pathIndex !== -1;
+
+                      return (
+                        <View
+                          key={`${rowIndex}-${colIndex}`}
+                          style={[
+                            styles.cell,
+                            isInPath && styles.cellActive,
+                          ]}
+                        >
+                          <Text style={styles.cellLetter}>
+                            {cell.letter}
+                          </Text>
+                          {isInPath && (
+                            <View style={styles.cellIndexBadge}>
+                              <Text style={styles.cellIndexText}>
+                                {pathIndex + 1}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))}
+            </RNView>
+          </View>
+
+          {/* Информация о слове */}
+          <View style={styles.wordInfo}>
+            <Text style={styles.wordLabel}>СЛОВО:</Text>
+            <Text style={styles.wordValue}>
+              {displayWord  || '(нет)'}
+            </Text>
+            <Text style={styles.wordLength}>Букв: {path.length}</Text>
+          </View>
+        </View>
       </View>
     </View>
   );
@@ -302,54 +296,72 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 1000,
   },
-  header: {
-    position: 'absolute',
-    top: 20, left: 0, right: 0,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(33, 130, 208, 0.9)',
-    justifyContent: 'center',
+
+  cardShadow: {
+    shadowColor: '#000',
+    shadowOpacity: 0.7,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  // cardTilted: {
+  //   transform: [{ rotate: '-4deg' }],
+  // },
+  card: {
+    backgroundColor: '#A3CEF1',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    width: 340,          // фикс вместо minWidth
+    alignItems: 'stretch',
+  },
+
+  headerBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 10,
   },
-  headerText: {
-    fontSize: 18,
+  headerTitle: {
+    fontSize: 16,
+    fontFamily: 'Unbounded',
     fontWeight: 'bold',
-    color: 'white',
+    color: '#0D1B2A',
   },
-  timerContainer: {
-    position: 'absolute',
-    top: 70,
-    right: 20,
-    backgroundColor: 'rgba(33, 130, 208, 0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+  headerTimer: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#0D1B2A',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  timerLabel: {
-    fontSize: 12,
-    color: 'white',
-    marginRight: 8,
+  headerTimerLabel: {
+    fontSize: 14,
+    color: '#E7ECEF',
+    marginRight: 4,
   },
-  timerValue: {
-    fontSize: 16,
+  headerTimerValue: {
+    fontSize: 14,
+    fontFamily: 'Unbounded',
     fontWeight: 'bold',
-    color: 'white',
+    color: '#E7ECEF',
   },
-  timerWarning: {
-    color: '#FF5454',
+  headerTimerWarning: {
+    color: '#FFE066',
   },
-  boardContainer: {
-    marginTop: 60,
-    marginBottom: 20,
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderWidth: 2,
-    borderColor: 'rgba(33, 130, 208, 0.6)',
+
+  boardOuter: {
+    alignSelf: 'center',
+    marginVertical: 8,
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    backgroundColor: '#0D1B2A',
   },
   board: {
-    backgroundColor: 'rgba(30, 30, 40, 0.9)',
+    backgroundColor: '#1B263B',
   },
   boardRow: {
     flexDirection: 'row',
@@ -359,62 +371,62 @@ const styles = StyleSheet.create({
     height: CELL_SIZE,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 0.5,
+    borderColor: '#415A77',
+    backgroundColor: '#6096BA',
   },
-  cellSelected: {
-    backgroundColor: 'rgba(50, 184, 198, 0.4)',
-    borderColor: 'rgba(50, 184, 198, 0.8)',
+  cellActive: {
+    backgroundColor: '#FFE066',
   },
-  cellText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  cellTextSelected: {
-    color: 'rgba(255, 255, 255, 1)',
+  cellLetter: {
     fontSize: 16,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#0D1B2A',
   },
-  pathNumber: {
+  cellIndexBadge: {
     position: 'absolute',
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#2182D0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    right: -4,
-    top: -4,
+    bottom: 1,
+    right: 1,
+    borderRadius: 6,
+    paddingHorizontal: 3,
+    backgroundColor: 'rgba(13,27,42,0.9)',
   },
-  pathNumberText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: 'white',
+  cellIndexText: {
+    fontSize: 9,
+    color: '#E7ECEF',
+    fontFamily: 'Unbounded',
   },
-  infoContainer: {
-    backgroundColor: 'rgba(33, 130, 208, 0.8)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+
+  wordInfo: {
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 8,
-    marginBottom: 16,
-    minWidth: 250,
-    alignItems: 'center',
+    backgroundColor: '#6096BA',
+    borderWidth: 2,
+    borderColor: '#0D1B2A',
   },
-  infoLabel: {
+  wordLabel: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 4,
-  },
-  infoWord: {
-    fontSize: 18,
+    fontFamily: 'Unbounded',
     fontWeight: 'bold',
-    color: 'white',
-    letterSpacing: 2,
-    marginBottom: 4,
+    color: '#0D1B2A',
+    marginBottom: 2,
   },
-  infoCount: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.7)',
+  wordValue: {
+    fontSize: 18,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#111',
+    textAlign: 'center',
+    marginBottom: 2,
+    maxWidth: '100%',
+  },
+  wordLength: {
+    fontSize: 12,
+    fontFamily: 'Unbounded',
+    color: '#0D1B2A',
+    textAlign: 'center',
   },
 });

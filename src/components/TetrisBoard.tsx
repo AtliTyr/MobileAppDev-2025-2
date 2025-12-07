@@ -1,6 +1,13 @@
 // src/components/TetrisBoard.tsx
-import React from 'react';
-import { View, StyleSheet, ViewStyle, Text, TextStyle } from 'react-native';
+import React, { useRef, useImperativeHandle, forwardRef } from 'react';
+import {
+  View,
+  StyleSheet,
+  ViewStyle,
+  Text,
+  Animated,
+  Easing,
+} from 'react-native';
 import { GameBoard } from '../types/game';
 import { Tetromino } from '../types/tetromino';
 import { getLetterStyleForColor } from '../utils/textColor';
@@ -11,94 +18,202 @@ interface Props {
   style?: ViewStyle | ViewStyle[];
 }
 
+// Методы, которыми будет управлять GameScreen
+export type TetrisBoardHandle = {
+  shake: () => void;
+  celebrate: () => void;
+};
+
 const ROWS = 20;
 const COLS = 10;
 
-export default function TetrisBoard({ board, currentTetromino, style }: Props) {
-  const renderCell = (row: number, col: number) => {
-    // Текущая падающая фигура
-    if (currentTetromino) {
-      const { x, y } = currentTetromino.position;
+const TetrisBoard = forwardRef<TetrisBoardHandle, Props>(
+  ({ board, currentTetromino, style }, ref) => {
+    const shakeAnim = useRef(new Animated.Value(0)).current;
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+    const flashAnim = useRef(new Animated.Value(0)).current;
 
-      for (let i = 0; i < currentTetromino.cells.length; i++) {
-        for (let j = 0; j < currentTetromino.cells[i].length; j++) {
-          const cellData = currentTetromino.cells[i][j];
-          if (cellData.isEmpty) continue;
+    // Простое дрожание
+    const shake = () => {
+      shakeAnim.setValue(0);
+      Animated.sequence([
+        Animated.timing(shakeAnim, {
+          toValue: 1,
+          duration: 80,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shakeAnim, {
+          toValue: -1,
+          duration: 80,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shakeAnim, {
+          toValue: 0,
+          duration: 60,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    };
 
-          if (row === y + i && col === x + j) {
-            const letterStyle = getLetterStyleForColor(cellData.color);
+    // Вспышка + лёгкий скейл (tetris / слово)
+    const celebrate = () => {
+      scaleAnim.setValue(1);
+      flashAnim.setValue(0);
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(scaleAnim, {
+            toValue: 1.05,
+            duration: 120,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 1,
+            duration: 120,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(flashAnim, {
+            toValue: 0.7,
+            duration: 80,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+          Animated.timing(flashAnim, {
+            toValue: 0,
+            duration: 200,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start();
+    };
 
-            return (
-              <View
-                key={`${row}-${col}`}
-                style={[
-                  styles.cell,
-                  { backgroundColor: cellData.color },
-                  {
-                    borderWidth: 0.5,
-                    borderColor: '#333333',
-                  },
-                ]}
-              >
-                <Text style={[styles.letter, letterStyle]}>
-                  {cellData.letter}
-                </Text>
-              </View>
-            );
+    useImperativeHandle(ref, () => ({
+      shake,
+      celebrate,
+    }));
+
+    const renderCell = (row: number, col: number) => {
+      // Текущая падающая фигура
+      if (currentTetromino) {
+        const { x, y } = currentTetromino.position;
+
+        for (let i = 0; i < currentTetromino.cells.length; i++) {
+          for (let j = 0; j < currentTetromino.cells[i].length; j++) {
+            const cellData = currentTetromino.cells[i][j];
+            if (cellData.isEmpty) continue;
+
+            if (row === y + i && col === x + j) {
+              const letterStyle = getLetterStyleForColor(cellData.color);
+
+              return (
+                <View
+                  key={`${row}-${col}`}
+                  style={[
+                    styles.cell,
+                    { backgroundColor: cellData.color },
+                    {
+                      borderWidth: 0.5,
+                      borderColor: '#333333',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.letter, letterStyle]}>
+                    {cellData.letter}
+                  </Text>
+                </View>
+              );
+            }
           }
         }
       }
-    }
 
-    // Статичная клетка на поле
-    const cell = board[row]?.[col];
-    if (cell) {
-      const letterStyle = getLetterStyleForColor(cell.color);
+      // Статичная клетка
+      const cell = board[row]?.[col];
+      if (cell) {
+        const letterStyle = getLetterStyleForColor(cell.color);
 
+        return (
+          <View
+            key={`${row}-${col}`}
+            style={[
+              styles.cell,
+              { backgroundColor: cell.color },
+              {
+                borderWidth: 0.5,
+                borderColor: '#333333',
+              },
+            ]}
+          >
+            <Text style={[styles.letter, letterStyle]}>
+              {cell.letter}
+            </Text>
+          </View>
+        );
+      }
+
+      // Пустая клетка
       return (
         <View
           key={`${row}-${col}`}
+          style={[styles.cell, styles.emptyCell]}
+        />
+      );
+    };
+
+    const translateX = shakeAnim.interpolate({
+      inputRange: [-1, 1],
+      outputRange: [-4, 4],
+    });
+
+    return (
+      <Animated.View
+        style={[
+          styles.boardOuter,
+          style,
+          {
+            transform: [
+              { translateX },
+              { scale: scaleAnim },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.boardInner}>
+          {Array(ROWS)
+            .fill(0)
+            .map((_, row) => (
+              <View key={row} style={styles.row}>
+                {Array(COLS)
+                  .fill(0)
+                  .map((_, col) => renderCell(row, col))}
+              </View>
+            ))}
+        </View>
+
+        {/* вспышка поверх доски */}
+        <Animated.View
+          pointerEvents="none"
           style={[
-            styles.cell,
-            { backgroundColor: cell.color },
+            StyleSheet.absoluteFillObject,
             {
-              borderWidth: 0.5,
-              borderColor: '#333333',
+              backgroundColor: '#FFFFFF',
+              opacity: flashAnim,
             },
           ]}
-        >
-          <Text style={[styles.letter, letterStyle]}>
-            {cell.letter}
-          </Text>
-        </View>
-      );
-    }
-
-    // Пустая клетка
-    return (
-      <View
-        key={`${row}-${col}`}
-        style={[styles.cell, styles.emptyCell]}
-      />
+        />
+      </Animated.View>
     );
-  };
+  }
+);
 
-  return (
-    <View style={[styles.boardOuter, style]}>
-      <View style={styles.boardInner}>
-        {Array(ROWS)
-          .fill(0)
-          .map((_, row) => (
-            <View key={row} style={styles.row}>
-              {Array(COLS)
-                .fill(0)
-                .map((_, col) => renderCell(row, col))}
-            </View>
-          ))}
-      </View>
-    </View>
-  );
-}
+export default TetrisBoard;
 
 const styles = StyleSheet.create({
   boardOuter: {
@@ -126,6 +241,5 @@ const styles = StyleSheet.create({
   letter: {
     fontWeight: 'bold',
     fontSize: 10,
-    // базовые параметры, цвет и тень сверху переопределяем через getLetterStyleForColor
   },
 });

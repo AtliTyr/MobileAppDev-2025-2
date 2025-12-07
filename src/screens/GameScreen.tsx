@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import TetrisBoard from '../components/TetrisBoard';
+// import TetrisBoard from '../components/TetrisBoard';
+import TetrisBoard, { TetrisBoardHandle } from '../components/TetrisBoard';
 import TetrominoBox from '../components/TetrominoBox';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -41,6 +42,12 @@ import {
 import WordCard from '../components/WordCard';
 import { DEFAULT_GAME_CONFIG } from '../types/game';
 
+import {
+  CelebrationType,
+  EmojiParticle,
+  generateEmojiParticles,
+} from '../utils/celebration';
+ 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export default function GameScreen({ navigation, route }: Props) {
@@ -98,7 +105,16 @@ export default function GameScreen({ navigation, route }: Props) {
 
   const { gameState, actions } = useGameState(
     effectiveConfig,
-    undefined
+    undefined,
+    (clearedLines) => {
+      if (!boardRef.current) return;
+      if (clearedLines === 4) {
+        boardRef.current.celebrate();
+        triggerCelebration('tetris');
+      } else {
+        boardRef.current.shake();
+      }
+    }
   );
 
   useEffect(() => {
@@ -126,6 +142,12 @@ export default function GameScreen({ navigation, route }: Props) {
   const [justFoundWord, setJustFoundWord] = useState<WordData | null>(null);
   const [justFoundVisible, setJustFoundVisible] = useState(false);
 
+  const [celebrationType, setCelebrationType] =
+    useState<CelebrationType>(null);
+  const [emojiParticles, setEmojiParticles] = useState<EmojiParticle[]>([]);
+  const celebrationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+
   // ========================================
   // 📍 REFS
   // ========================================
@@ -135,6 +157,28 @@ export default function GameScreen({ navigation, route }: Props) {
     isControlsDisabled,
     isPaused: gameState.isPaused,
   });
+
+  const boardRef = useRef<TetrisBoardHandle | null>(null);
+
+  const triggerCelebration = useCallback((type: CelebrationType) => {
+    if (!type) return;
+
+    const particles = generateEmojiParticles(15);
+    console.log('🎉 triggerCelebration', type, 'particles:', particles.length);
+
+    setCelebrationType(type);
+    setEmojiParticles(particles);
+
+    if (celebrationTimeoutRef.current) {
+      clearTimeout(celebrationTimeoutRef.current);
+    }
+
+    celebrationTimeoutRef.current = setTimeout(() => {
+      setCelebrationType(null);
+      setEmojiParticles([]);
+      celebrationTimeoutRef.current = null;
+    }, 1000);
+  }, []);
 
   // ========================================
   // 🧩 РАБОТА С НАБОРОМ СЛОВ
@@ -268,6 +312,14 @@ export default function GameScreen({ navigation, route }: Props) {
       console.log('✅ Cleanup завершён');
     };
   }, [stopBackgroundMusic]);
+
+  useEffect(() => {
+    return () => {
+      if (celebrationTimeoutRef.current) {
+        clearTimeout(celebrationTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // ========================================
   // 🔄 ОБНОВЛЕНИЕ stateRef
@@ -531,6 +583,10 @@ export default function GameScreen({ navigation, route }: Props) {
         const parsed: Record<string, string[]> = raw ? JSON.parse(raw) : {};
         const list = parsed[currentWordSet.id] ?? [];
 
+        if (boardRef.current) {
+          boardRef.current.celebrate();
+        }
+
         if (!list.includes(currentTargetId)) {
           const updated = [...list, currentTargetId];
           parsed[currentWordSet.id] = updated;
@@ -544,6 +600,8 @@ export default function GameScreen({ navigation, route }: Props) {
             currentTargetId
           );
         }
+
+        triggerCelebration('word');
 
         chooseNextTarget(currentWordSet, parsed[currentWordSet.id]);
 
@@ -759,6 +817,7 @@ export default function GameScreen({ navigation, route }: Props) {
             {...touchControls.panHandlers}
           >
             <TetrisBoard
+              ref={boardRef}
               board={gameState.board}
               currentTetromino={gameState.currentTetromino}
             />
@@ -866,36 +925,58 @@ export default function GameScreen({ navigation, route }: Props) {
         {/* Меню паузы */}
         <Modal visible={showPauseMenu} transparent animationType="fade">
           <View style={pauseMenu.overlay}>
-            <View style={pauseMenu.container}>
-              <Text style={pauseMenu.title}>ПАУЗА</Text>
+            {/* Наклоняем только внешний каркас */}
+            <View style={pauseMenu.cardShadow}>
+              <View style={pauseMenu.tilted}>
+                {/* Внутренний контейнер без наклона */}
+                <View style={pauseMenu.container}>
+                  {/* Заголовок */}
+                  <Text style={pauseMenu.title}>ПАУЗА</Text>
 
-              <TouchableOpacity
-                style={pauseMenu.button}
-                onPress={handlePause}
-              >
-                <Text style={pauseMenu.buttonText}>ПРОДОЛЖИТЬ</Text>
-              </TouchableOpacity>
+                  {/* Целевое слово: его можно оставить наклонённым, если хочешь */}
+                  <View style={pauseMenu.targetOuter}>
+                    <View style={pauseMenu.targetTilted}>
+                      <View style={pauseMenu.targetBox}>
+                        <Text style={pauseMenu.targetLabel}>ЦЕЛЕВОЕ СЛОВО</Text>
+                        <View style={pauseMenu.targetValueWrapper}>
+                          <Text
+                            style={pauseMenu.targetValue}
+                            numberOfLines={2}
+                          >
+                            {currentTargetWord ?? '—'}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
 
-              <TouchableOpacity
-                style={pauseMenu.button}
-                onPress={handleRestart}
-              >
-                <Text style={pauseMenu.buttonText}>ЗАНОВО</Text>
-              </TouchableOpacity>
+                  {/* Кнопки (ровные) */}
+                  <View style={pauseMenu.buttonsColumn}>
+                    <TouchableOpacity
+                      style={pauseMenu.buttonPrimary}
+                      onPress={handlePause}
+                    >
+                      <Text style={pauseMenu.buttonPrimaryText}>ПРОДОЛЖИТЬ</Text>
+                    </TouchableOpacity>
 
-              <TouchableOpacity
-                style={pauseMenu.button}
-                onPress={handleExitRequest}
-              >
-                <Text style={pauseMenu.buttonText}>ГЛАВНОЕ МЕНЮ</Text>
-              </TouchableOpacity>
+                    <TouchableOpacity
+                      style={pauseMenu.buttonSecondary}
+                      onPress={handleRestart}
+                    >
+                      <Text style={pauseMenu.buttonSecondaryText}>ЗАНОВО</Text>
+                    </TouchableOpacity>
 
-              <TouchableOpacity
-                style={pauseMenu.button}
-                onPress={() => setShowDebug(true)}
-              >
-                <Text style={pauseMenu.buttonText}>DEBUG</Text>
-              </TouchableOpacity>
+                    <TouchableOpacity
+                      style={pauseMenu.buttonSecondary}
+                      onPress={handleExitRequest}
+                    >
+                      <Text style={pauseMenu.buttonSecondaryText}>
+                        ГЛАВНОЕ МЕНЮ
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
             </View>
           </View>
         </Modal>
@@ -903,38 +984,43 @@ export default function GameScreen({ navigation, route }: Props) {
         {/* Диалог выхода */}
         <Modal visible={showExitConfirm} transparent animationType="fade">
           <View style={exitConfirmModal.overlay}>
-            <View style={exitConfirmModal.container}>
-              <Text style={exitConfirmModal.title}>Сохранить игру?</Text>
-              <Text style={exitConfirmModal.message}>
-                Вы можете продолжить позже, если сохраните.
-              </Text>
+            <View style={exitConfirmModal.cardShadow}>
+              <View style={exitConfirmModal.tilted}>
+                <View style={exitConfirmModal.container}>
+                  {/* Крестик в правом верхнем углу */}
+                  <TouchableOpacity
+                    style={exitConfirmModal.closeButton}
+                    hitSlop={{ top: 24, right: 24, bottom: 24, left: 24 }}
+                    onPress={() => setShowExitConfirm(false)}
+                  >
+                    <Text style={exitConfirmModal.closeButtonText}>✕</Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                style={exitConfirmModal.button}
-                onPress={handleExitWithSave}
-              >
-                <Text style={exitConfirmModal.buttonText}>
-                  💾 СОХРАНИТЬ И ВЫЙТИ
-                </Text>
-              </TouchableOpacity>
+                  <Text style={exitConfirmModal.title}>Сохранить игру?</Text>
 
-              <TouchableOpacity
-                style={exitConfirmModal.button}
-                onPress={handleExitWithoutSave}
-              >
-                <Text style={exitConfirmModal.buttonText}>
-                  ВЫЙТИ БЕЗ СОХРАНЕНИЯ
-                </Text>
-              </TouchableOpacity>
+                  <Text style={exitConfirmModal.message}>
+                    Вы можете продолжить позже, если сохраните.
+                  </Text>
 
-              <TouchableOpacity
-                style={exitConfirmModal.cancelButton}
-                onPress={() => setShowExitConfirm(false)}
-              >
-                <Text style={exitConfirmModal.cancelButtonText}>
-                  ОТМЕНА
-                </Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={exitConfirmModal.buttonPrimary}
+                    onPress={handleExitWithSave}
+                  >
+                    <Text style={exitConfirmModal.buttonPrimaryText}>
+                      💾 СОХРАНИТЬ И ВЫЙТИ
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={exitConfirmModal.buttonSecondary}
+                    onPress={handleExitWithoutSave}
+                  >
+                    <Text style={exitConfirmModal.buttonSecondaryText}>
+                      ВЫЙТИ БЕЗ СОХРАНЕНИЯ
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           </View>
         </Modal>
@@ -942,44 +1028,65 @@ export default function GameScreen({ navigation, route }: Props) {
         {/* Game Over */}
         <Modal visible={gameState.isGameOver} transparent animationType="fade">
           <View style={gameOverModal.overlay}>
-            <View style={gameOverModal.container}>
-              <Text style={gameOverModal.title}>ИГРА ОКОНЧЕНА</Text>
-              <View style={gameOverModal.statsContainer}>
-                <View style={gameOverModal.statRow}>
-                  <Text style={gameOverModal.statLabel}>ОЧКИ:</Text>
-                  <Text style={gameOverModal.statValue}>
-                    {gameState.score}
-                  </Text>
-                </View>
-                <View style={gameOverModal.statRow}>
-                  <Text style={gameOverModal.statLabel}>УРОВЕНЬ:</Text>
-                  <Text style={gameOverModal.statValue}>
-                    {gameState.level}
-                  </Text>
-                </View>
-                <View style={gameOverModal.statRow}>
-                  <Text style={gameOverModal.statLabel}>ЛИНИИ:</Text>
-                  <Text style={gameOverModal.statValue}>
-                    {gameState.linesCleared}
-                  </Text>
+            <View style={gameOverModal.cardShadow}>
+              <View style={gameOverModal.tilted}>
+                <View style={gameOverModal.container}>
+                  {/* Заголовок */}
+                  <Text style={gameOverModal.title}>ИГРА ОКОНЧЕНА</Text>
+
+                  {/* Итоговый счёт / рекорд */}
+                  <View style={gameOverModal.scoreBox}>
+                    <Text style={gameOverModal.scoreLabel}>ОЧКИ</Text>
+                    <Text style={gameOverModal.scoreValue}>{gameState.score}</Text>
+                    <Text style={gameOverModal.bestScoreHint}>
+                      ЛУЧШИЙ: {bestScore}
+                    </Text>
+                  </View>
+
+                  {/* Краткая статистика */}
+                  <View style={gameOverModal.statsContainer}>
+                    <View style={gameOverModal.statRow}>
+                      <Text style={gameOverModal.statLabel}>УРОВЕНЬ</Text>
+                      <Text style={gameOverModal.statValue}>
+                        {gameState.level}
+                      </Text>
+                    </View>
+                    <View style={gameOverModal.statRow}>
+                      <Text style={gameOverModal.statLabel}>ЛИНИИ</Text>
+                      <Text style={gameOverModal.statValue}>
+                        {gameState.linesCleared}
+                      </Text>
+                    </View>
+                    <View style={gameOverModal.statRow}>
+                      <Text style={gameOverModal.statLabel}>СЛОВА</Text>
+                      <Text style={gameOverModal.statValue}>
+                        {gameState.wordsFormed}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Кнопки */}
+                  <View style={gameOverModal.buttonsColumn}>
+                    <TouchableOpacity
+                      style={gameOverModal.buttonPrimary}
+                      onPress={handleRestart}
+                    >
+                      <Text style={gameOverModal.buttonPrimaryText}>
+                        ИГРАТЬ ЗАНОВО
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={gameOverModal.buttonSecondary}
+                      onPress={handleExitRequest}
+                    >
+                      <Text style={gameOverModal.buttonSecondaryText}>
+                        В ГЛАВНОЕ МЕНЮ
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-
-              <TouchableOpacity
-                style={gameOverModal.button}
-                onPress={handleRestart}
-              >
-                <Text style={gameOverModal.buttonText}>ИГРАТЬ ЗАНОВО</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={gameOverModal.cancelButton}
-                onPress={handleExitRequest}
-              >
-                <Text style={gameOverModal.cancelButtonText}>
-                  В ГЛАВНОЕ МЕНЮ
-                </Text>
-              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -1002,6 +1109,40 @@ export default function GameScreen({ navigation, route }: Props) {
           onClose={handleRecognitionClose}
           onTimerTick={() => setRecognitionTimer(120)}
         />
+
+        {celebrationType && (
+          <View pointerEvents="none" style={celebrationOverlay.container}>
+            {/* {console.log('🎊 overlay render, particles=', emojiParticles.length)} */}
+
+            <View style={celebrationOverlay.centerWrapper}>
+              <View style={celebrationOverlay.center}>
+                <Text style={celebrationOverlay.title}>
+                  {celebrationType === 'tetris' ? 'TETRIS' : 'НОВОЕ СЛОВО'}
+                </Text>
+              </View>
+            </View>
+
+            {emojiParticles.map((p) => (
+              <Text
+                key={p.id}
+                style={[
+                  celebrationOverlay.emoji,
+                  {
+                    top: `${p.topPercent}%`,
+                    [p.side]: 0,
+                    transform: [
+                      { translateX: p.offsetX },
+                      { rotate: `${p.rotate}deg` },
+                    ],
+                  } as any,
+                ]}
+              >
+                {p.char}
+              </Text>
+            ))}
+          </View>
+        )}
+
       </View>
     </ImageBackground>
   );
@@ -1307,29 +1448,105 @@ const pauseMenu = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  cardShadow: {
+    shadowColor: '#000',
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  // наклоняем только этот слой
+  tilted: {
+    transform: [{ rotate: '-4deg' }],
+  },
+  // внутренний блок — без наклона, ровный контент
   container: {
-    backgroundColor: 'white',
-    padding: 30,
+    backgroundColor: '#A3CEF1',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
     borderRadius: 10,
-    alignItems: 'center',
-    minWidth: 250,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    minWidth: 260,
+    alignItems: 'stretch',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 20,
+    fontFamily: 'Unbounded',
+    color: '#0D1B2A',
+    textAlign: 'center',
+    marginBottom: 14,
   },
-  button: {
-    padding: 15,
-    marginVertical: 5,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 5,
-    minWidth: 200,
+
+  // блок целевого слова
+  targetOuter: {
+    marginBottom: 30,
+  },
+  // если хочешь цель тоже наклонённой — оставляем этот rotate
+  targetTilted: {
+    transform: [{ rotate: '-3deg' }],
+  },
+  targetBox: {
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    backgroundColor: '#0D1B2A',
+    overflow: 'hidden',
+  },
+  targetLabel: {
+    backgroundColor: '#0D1B2A',
+    color: '#E7ECEF',
+    textAlign: 'center',
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    fontSize: 12,
+    paddingVertical: 2,
+  },
+  targetValueWrapper: {
+    backgroundColor: '#6096BA',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  targetValue: {
+    color: '#111',
+    textAlign: 'center',
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+
+  buttonsColumn: {
+    marginTop: 4,
+    gap: 8,
+    transform: [{rotate: '3deg'}]
+  },
+
+  buttonPrimary: {
+    backgroundColor: '#0D1B2A',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    paddingVertical: 10,
     alignItems: 'center',
   },
-  buttonText: {
+  buttonPrimaryText: {
+    color: '#E7ECEF',
     fontSize: 16,
+    fontFamily: 'Unbounded',
     fontWeight: 'bold',
+  },
+
+  buttonSecondary: {
+    backgroundColor: '#6096BA',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  buttonSecondaryText: {
+    color: '#111',
+    fontSize: 15,
+    fontFamily: 'Unbounded',
+    fontWeight: '900',
   },
 });
 
@@ -1340,52 +1557,95 @@ const exitConfirmModal = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  container: {
-    backgroundColor: 'white',
-    padding: 30,
-    borderRadius: 10,
-    alignItems: 'center',
-    minWidth: 280,
+  cardShadow: {
+    shadowColor: '#000',
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
   },
+  tilted: {
+    transform: [{ rotate: '-3deg' }],
+  },
+  container: {
+    backgroundColor: '#A3CEF1',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    minWidth: 280,
+    alignItems: 'stretch',
+  },
+
+  // крестик
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    paddingHorizontal: 4,
+    paddingVertical: 0,
+    backgroundColor: '#6096BA',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#0D1B2A',
+    zIndex: 10,
+  },
+  closeButtonText: {
+    fontSize: 20,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#0D1B2A',
+  },
+
   title: {
     fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 12,
+    fontFamily: 'Unbounded',
+    color: '#0D1B2A',
     textAlign: 'center',
+    marginBottom: 10,
   },
   message: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 20,
+    fontFamily: 'Unbounded',
+    color: '#111',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+
+  buttonPrimary: {
+    backgroundColor: '#0D1B2A',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 6,
+    marginBottom: 8,
+  },
+  buttonPrimaryText: {
+    fontSize: 14,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#E7ECEF',
     textAlign: 'center',
   },
-  button: {
-    padding: 15,
-    marginVertical: 8,
-    backgroundColor: '#4CAF50',
-    borderRadius: 5,
-    minWidth: 220,
+
+  buttonSecondary: {
+    backgroundColor: '#6096BA',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    paddingVertical: 8,
     alignItems: 'center',
+    borderRadius: 6,
+    marginBottom: 4,
   },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  cancelButton: {
-    padding: 12,
-    marginVertical: 8,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 5,
-    minWidth: 220,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#333',
-  },
-  cancelButtonText: {
+  buttonSecondaryText: {
     fontSize: 14,
+    fontFamily: 'Unbounded',
     fontWeight: 'bold',
-    color: '#333',
+    color: '#111',
+    textAlign: 'center',
   },
 });
 
@@ -1414,75 +1674,171 @@ const countdownOverlay = StyleSheet.create({
 const gameOverModal = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
   },
+  cardShadow: {
+    shadowColor: '#000',
+    shadowOpacity: 0.7,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  tilted: {
+    transform: [{ rotate: '-4deg' }],
+  },
   container: {
-    backgroundColor: '#222',
-    padding: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    minWidth: 300,
+    backgroundColor: '#0D1B2A', // тёмно‑синий
     borderWidth: 3,
-    borderColor: '#ff4444',
+    borderColor: '#6096BA',
+    borderRadius: 14,
+    paddingHorizontal: 22,
+    paddingVertical: 20,
+    minWidth: 290,
+    alignItems: 'stretch',
   },
   title: {
-    fontSize: 36,
+    fontSize: 30,
     fontWeight: 'bold',
-    color: '#ff4444',
-    marginBottom: 20,
+    fontFamily: 'Unbounded',
+    color: '#A3CEF1',
     textAlign: 'center',
+    marginBottom: 12,
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
   },
-  statsContainer: {
-    backgroundColor: 'rgba(255, 68, 68, 0.1)',
-    padding: 15,
+
+  // блок итогового счёта
+  scoreBox: {
+    borderWidth: 3,
+    borderColor: '#6096BA',
+    backgroundColor: '#111827',
     borderRadius: 10,
-    marginBottom: 20,
-    minWidth: '100%',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    alignItems: 'center',
+  },
+  scoreLabel: {
+    fontSize: 14,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#E7ECEF',
+    marginBottom: 4,
+  },
+  scoreValue: {
+    fontSize: 28,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#FFE066',
+    marginBottom: 4,
+  },
+  bestScoreHint: {
+    fontSize: 12,
+    fontFamily: 'Unbounded',
+    color: '#A3CEF1',
+  },
+
+  statsContainer: {
+    backgroundColor: '#1B263B',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#415A77',
   },
   statRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   statLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 'bold',
-    color: '#999',
+    color: '#A3CEF1',
+    fontFamily: 'Unbounded',
   },
   statValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#E7ECEF',
+    fontFamily: 'Unbounded',
   },
-  button: {
-    padding: 15,
-    marginVertical: 8,
-    backgroundColor: '#ff4444',
+
+  buttonsColumn: {
+    marginTop: 4,
+    gap: 8,
+    transform: [{ rotate: '3deg' }],
+  },
+  buttonPrimary: {
+    backgroundColor: '#6096BA',
+    borderWidth: 3,
+    borderColor: '#6096BA',
+    paddingVertical: 10,
+    alignItems: 'center',
     borderRadius: 8,
-    minWidth: 250,
+  },
+  buttonPrimaryText: {
+    color: '#0D1B2A',
+    fontSize: 16,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+  },
+  buttonSecondary: {
+    backgroundColor: '#0D1B2A',
+    borderWidth: 3,
+    borderColor: '#6096BA',
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  buttonSecondaryText: {
+    color: '#E7ECEF',
+    fontSize: 15,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+  },
+});
+
+const celebrationOverlay = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999, // чтобы поверх борда/панелей
+    backgroundColor: 'rgba(95, 95, 95, 0.5)',
+  },
+  centerWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: 'white',
+  center: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    // backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
-  cancelButton: {
-    padding: 12,
-    marginVertical: 8,
-    backgroundColor: 'rgba(255, 68, 68, 0.2)',
-    borderRadius: 8,
-    minWidth: 250,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#ff4444',
-  },
-  cancelButtonText: {
-    fontSize: 14,
+  title: {
+    fontSize: 42,
     fontWeight: 'bold',
-    color: '#ff4444',
+    color: '#FFE066',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  emoji: {
+    position: 'absolute',
+    fontSize: 48,
   },
 });

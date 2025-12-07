@@ -66,27 +66,27 @@ export const builtInWordSets: WordSet[] = [
     totalWords: 4,
     language: 'en',
     words: [
-      // {
-      //   id: 'a1',
-      //   word: 'CAT',
-      //   translation: 'cat',
-      //   description: 'Домашнее животное, любит спать и мурлыкать.',
-      // },
-      // {
-      //   id: 'a2',
-      //   word: 'DOG',
-      //   translation: 'dog',
-      //   description: 'Верный друг человека.',
-      // },
-      // {
-      //   id: 'a3',
-      //   word: 'CATFISH',
-      //   translation: 'catfish',
-      //   description: 'Рыба с усами, живёт на дне.',
-      // },
+      {
+        id: 'a1',
+        word: 'CAT',
+        translation: 'cat',
+        description: 'Домашнее животное, любит спать и мурлыкать.',
+      },
+      {
+        id: 'a2',
+        word: 'DOG',
+        translation: 'dog',
+        description: 'Верный друг человека.',
+      },
+      {
+        id: 'a3',
+        word: 'CATFISH',
+        translation: 'catfish',
+        description: 'Рыба с усами, живёт на дне.',
+      },
       {
         id: 'a4',
-        word: 'PSYCHOSOCIAL',
+        word: 'MOLE',
         translation: 'mole',
         description: 'Живёт под землёй и почти не видит.',
       },

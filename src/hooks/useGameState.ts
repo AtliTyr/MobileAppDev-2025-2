@@ -13,6 +13,7 @@ import { useCollisionDetection } from './useCollisionDetection';
 export const useGameState = (
   config: GameConfig = DEFAULT_GAME_CONFIG,
   initialGameState?: GameState,
+  onLinesCleared?: (count: number) => void
 ) => {
   const LOCK_DELAY_TIME = 500;
 
@@ -76,6 +77,11 @@ export const useGameState = (
       let newGameSpeed = prev.gameSpeed;
 
       if (linesCleared > 0) {
+        // 👉 триггерим колбэк для анимации
+        if (onLinesCleared) {
+          onLinesCleared(linesCleared);
+        }
+
         const lineClearScore = boardManager.calculateLineClearScore(
           linesCleared,
           prev.level
@@ -112,7 +118,7 @@ export const useGameState = (
       if (newCurrentTetromino) {
         const canSpawn = !checkCollision(newCurrentTetromino, boardAfterClear);
         if (!canSpawn) {
-          isGameOver = true;
+          isGameOver = false;
         }
       }
 
@@ -138,6 +144,7 @@ export const useGameState = (
       config.speedIncreasePerLevel,
       config.nextTetrominosCount,
       config.targetWord,
+      onLinesCleared,
     ]
   );
 
