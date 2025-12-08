@@ -211,13 +211,6 @@ export default function HomeScreen({ navigation }: Props) {
             />
 
             <PrimaryButton
-              title="ИНСТРУКЦИИ"
-              onPress={() => navigation.navigate('Instructions')}
-              variant="secondary"
-              style={{marginBottom: 2}}
-            />
-
-            <PrimaryButton
               title="СЛОВАРЬ"
               onPress={() => navigation.navigate('Dictionary')}
               variant="secondary"

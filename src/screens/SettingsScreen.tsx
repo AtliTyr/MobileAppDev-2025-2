@@ -2,10 +2,9 @@
  * ⚙️ SettingsScreen.tsx - Экран настроек приложения
  */
 
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Switch, ScrollView, ImageBackground } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, ImageBackground, TouchableOpacity, PanResponder, GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import Slider from '@react-native-community/slider';
 import PrimaryButton from '../components/PrimaryButton';
 import { useAudio } from '../context/AudioContext';
 import * as Brightness from 'expo-brightness';
@@ -15,6 +14,118 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
 
 const DEFAULT_BRIGHTNESS = 0.05;
 
+// Кастомный прямоугольный Switch
+const RectSwitch = ({ value, onValueChange }: { value: boolean; onValueChange: (val: boolean) => void }) => {
+  return (
+    <TouchableOpacity
+      style={[styles.rectSwitch, value ? styles.rectSwitchOn : styles.rectSwitchOff]}
+      onPress={() => onValueChange(!value)}
+      activeOpacity={0.8}
+    >
+      <View style={[styles.rectSwitchThumb, value ? styles.rectSwitchThumbOn : styles.rectSwitchThumbOff]} />
+    </TouchableOpacity>
+  );
+};
+
+// Кастомный прямоугольный Slider
+const RectSlider = ({ 
+  value, 
+  onValueChange, 
+  minimumValue = 0, 
+  maximumValue = 100,
+  step = 1,
+  thumbColor = '#0D1B2A',
+  onSlideStart,
+  onSlideEnd,
+}: { 
+  value: number; 
+  onValueChange: (val: number) => void;
+  minimumValue?: number;
+  maximumValue?: number;
+  step?: number;
+  thumbColor?: string;
+  onSlideStart?: () => void;
+  onSlideEnd?: () => void;
+}) => {
+  const sliderRef = useRef<View>(null);
+  const [layout, setLayout] = useState({ width: 0, x: 0 });
+
+  const normalizedValue = ((value - minimumValue) / (maximumValue - minimumValue)) * 100;
+
+  const updateValue = (pageX: number) => {
+    if (layout.width === 0) return;
+    
+    const touchX = pageX - layout.x;
+    const percentage = Math.max(0, Math.min(100, (touchX / layout.width) * 100));
+    const rawValue = minimumValue + (percentage / 100) * (maximumValue - minimumValue);
+    const steppedValue = Math.round(rawValue / step) * step;
+    const clampedValue = Math.max(minimumValue, Math.min(maximumValue, steppedValue));
+    
+    onValueChange(clampedValue);
+  };
+
+  const handleLayout = () => {
+    setTimeout(() => {
+      sliderRef.current?.measure((_x: number, _y: number, width: number, _height: number, pageX: number, _pageY: number) => {
+        setLayout({ width, x: pageX });
+      });
+    }, 100);
+  };
+
+  useEffect(() => {
+    handleLayout();
+  }, []);
+
+  // Генерируем 19 линий для создания 20 сегментов
+  const renderGrid = () => {
+    return Array.from({ length: 19 }).map((_, i) => (
+      <View 
+        key={i} 
+        style={[
+          styles.gridLine,
+          { left: `${((i + 1) * 5)}%` }
+        ]} 
+      />
+    ));
+  };
+
+  return (
+    <View style={styles.sliderContainer}>
+      <View
+        ref={sliderRef}
+        style={styles.sliderTrack}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(e) => {
+          onSlideStart?.();
+          updateValue(e.nativeEvent.pageX);
+        }}
+        onResponderMove={(e) => {
+          updateValue(e.nativeEvent.pageX);
+        }}
+        onResponderRelease={() => {
+          onSlideEnd?.();
+        }}
+        onLayout={handleLayout}
+      >
+        <View style={[styles.sliderFill, { width: `${normalizedValue}%` }]} />
+        {renderGrid()}
+      </View>
+      <View 
+        style={[
+          styles.sliderThumb, 
+          { 
+            left: `${normalizedValue}%`,
+            backgroundColor: thumbColor,
+          }
+        ]} 
+        pointerEvents="none"
+      />
+    </View>
+  );
+};
+
+
 export default function SettingsScreen({ navigation }: Props) {
   const { updateSettings, resetSettings, getSettingsForDisplay, getDefaultSettings } = useAudio();
 
@@ -22,6 +133,7 @@ export default function SettingsScreen({ navigation }: Props) {
     getSettingsForDisplay()
   );
   const [brightness, setBrightness] = useState(1);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -64,14 +176,10 @@ export default function SettingsScreen({ navigation }: Props) {
   };
 
   const handleResetSettings = async () => {
-    // 1) сброс аудио в контексте
     resetSettings();
-
-    // 2) локальный UI обновляем из дефолтного объекта, а не из стейта
     const defaults = getDefaultSettings();
     setDisplaySettings(defaults);
 
-    // 3) яркость
     try {
       setBrightness(DEFAULT_BRIGHTNESS);
       await Brightness.setBrightnessAsync(DEFAULT_BRIGHTNESS);
@@ -87,17 +195,29 @@ export default function SettingsScreen({ navigation }: Props) {
       imageStyle={styles.imageStyle}
     >
       <View style={styles.screen}>
-        {/* Верхняя панель */}
+        {/* Крестик закрытия */}
+        <TouchableOpacity
+          style={styles.closeButton}
+          hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.closeButtonText}>✕</Text>
+        </TouchableOpacity>
+
+        {/* Шапка */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>⚙️ НАСТРОЙКИ</Text>
-          <Text style={styles.headerSubtitle}>
-            Музыка, звуки и яркость экрана
-          </Text>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.headerTitle}>Настройки</Text>
+            <Text style={styles.headerSubtitle}>
+              Музыка, звуки и яркость экрана
+            </Text>
+          </View>
         </View>
 
         <ScrollView
           style={styles.container}
           contentContainerStyle={styles.contentContainer}
+          scrollEnabled={scrollEnabled} // Добавили prop
         >
           <View>
             {/* Музыка */}
@@ -108,11 +228,9 @@ export default function SettingsScreen({ navigation }: Props) {
                   <Text style={styles.valueBadge}>
                     {displaySettings.musicVolume}%
                   </Text>
-                  <Switch
+                  <RectSwitch 
                     value={displaySettings.musicEnabled}
                     onValueChange={handleMusicToggle}
-                    trackColor={{ false: '#3C4A5E', true: '#27AE60' }}
-                    thumbColor={displaySettings.musicEnabled ? '#ECF0F1' : '#95A5A6'}
                   />
                 </View>
               </View>
@@ -121,16 +239,13 @@ export default function SettingsScreen({ navigation }: Props) {
                 Фоновая музыка в меню и во время игры.
               </Text>
 
-              <Slider
-                style={styles.slider}
+              <RectSlider
+                value={displaySettings.musicVolume}
+                onValueChange={handleMusicVolumeChange}
                 minimumValue={0}
                 maximumValue={100}
                 step={1}
-                value={displaySettings.musicVolume}
-                onValueChange={handleMusicVolumeChange}
-                minimumTrackTintColor="#27AE60"
-                maximumTrackTintColor="#2C3E50"
-                thumbTintColor="#ECF0F1"
+                thumbColor="#0D1B2A"
               />
             </View>
 
@@ -142,13 +257,9 @@ export default function SettingsScreen({ navigation }: Props) {
                   <Text style={styles.valueBadge}>
                     {displaySettings.soundsVolume}%
                   </Text>
-                  <Switch
+                  <RectSwitch 
                     value={displaySettings.soundsEnabled}
                     onValueChange={handleSoundsToggle}
-                    trackColor={{ false: '#3C4A5E', true: '#2980B9' }}
-                    thumbColor={
-                      displaySettings.soundsEnabled ? '#ECF0F1' : '#95A5A6'
-                    }
                   />
                 </View>
               </View>
@@ -157,16 +268,13 @@ export default function SettingsScreen({ navigation }: Props) {
                 Эффекты линий, фигур и слов.
               </Text>
 
-              <Slider
-                style={styles.slider}
+              <RectSlider
+                value={displaySettings.soundsVolume}
+                onValueChange={handleSoundsVolumeChange}
                 minimumValue={0}
                 maximumValue={100}
                 step={1}
-                value={displaySettings.soundsVolume}
-                onValueChange={handleSoundsVolumeChange}
-                minimumTrackTintColor="#2980B9"
-                maximumTrackTintColor="#2C3E50"
-                thumbTintColor="#ECF0F1"
+                thumbColor="#0D1B2A"
               />
             </View>
 
@@ -183,42 +291,33 @@ export default function SettingsScreen({ navigation }: Props) {
                 Влияет на общую яркость экрана устройства.
               </Text>
 
-              <Slider
-                style={styles.slider}
+              <RectSlider
+                value={brightness}
+                onValueChange={handleBrightnessChange}
                 minimumValue={0}
                 maximumValue={1}
                 step={0.05}
-                value={brightness}
-                onValueChange={handleBrightnessChange}
-                minimumTrackTintColor="#F1C40F"
-                maximumTrackTintColor="#2C3E50"
-                thumbTintColor="#ECF0F1"
+                thumbColor="#FFE066"
               />
             </View>
           </View>
-          
-          {/* Низ экрана: кнопки + инфо */}
-          <View style={styles.bottomArea}>
-            <View style={styles.buttonsRow}>
-              <PrimaryButton
-                title="🔄 СБРОСИТЬ"
-                onPress={handleResetSettings}
-                variant="accent"
-                small
-              />
-              <PrimaryButton
-                title="← НАЗАД"
-                onPress={() => navigation.goBack()}
-                variant="secondary"
-                small
-              />
-            </View>
 
-            <View style={styles.infoBox}>
-              <Text style={styles.infoText}>
-                Все изменения сохраняются автоматически
-              </Text>
-            </View>
+          {/* Кнопки сразу после секций */}
+          <View style={styles.buttonsRow}>
+            <PrimaryButton
+              title="📖 КАК ИГРАТЬ"
+              onPress={() => navigation.navigate('Instructions')}
+              variant="secondary"
+              small
+              style={styles.bottomButton}
+            />
+            <PrimaryButton
+              title="🔄 СБРОСИТЬ"
+              onPress={handleResetSettings}
+              variant="accent"
+              small
+              style={styles.bottomButton}
+            />
           </View>
         </ScrollView>
       </View>
@@ -235,7 +334,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   imageStyle: {
-    resizeMode: 'stretch',
     opacity: 0.5,
   },
 
@@ -244,23 +342,65 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(13, 27, 42, 0.8)',
   },
 
-  header: {
-    paddingTop: 40,
-    paddingBottom: 16,
-    paddingHorizontal: 24,
+  // Крестик закрытия
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#6096BA',
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
-  headerTitle: {
-    fontSize: 24,
+  closeButtonText: {
+    fontSize: 20,
     fontFamily: 'Unbounded',
     fontWeight: 'bold',
-    color: '#E7ECEF',
-    letterSpacing: 1,
+    color: '#0D1B2A',
+  },
+
+  // Header
+  header: {
+    alignItems: 'flex-start',
+    paddingHorizontal: 32,
+    marginBottom: 24,
+    top: -15,
+    left: '-5%',
+    width: '110%',
+    backgroundColor: '#A3CEF1',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    borderRadius: 10,
+    paddingTop: 64,
+    paddingBottom: 10,
+    transform: [{ rotate: '-3deg' }],
+  },
+  headerTextBlock: {
+    alignItems: 'flex-start',
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#0D1B2A',
+    letterSpacing: -1,
   },
   headerSubtitle: {
-    marginTop: 4,
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: 'Unbounded',
-    color: '#C7D2FE',
+    fontWeight: 'bold',
+    color: '#0D1B2A',
+    marginTop: 2,
   },
 
   container: {
@@ -269,8 +409,6 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 20,
     paddingBottom: 20,
-    flexGrow: 1,
-    justifyContent: 'space-between',
   },
 
   // карточки секций
@@ -318,46 +456,105 @@ const styles = StyleSheet.create({
   },
 
   valueBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
     borderWidth: 2,
     borderColor: '#0D1B2A',
     backgroundColor: '#6096BA',
     fontSize: 12,
     fontFamily: 'Unbounded',
+    fontWeight: 'bold',
     color: '#E7ECEF',
   },
 
-  slider: {
-    height: 34,
+  // Кастомный прямоугольный Switch
+  rectSwitch: {
+    width: 56,
+    height: 28,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#0D1B2A',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  rectSwitchOff: {
+    backgroundColor: '#3C4A5E',
+    alignItems: 'flex-start',
+  },
+  rectSwitchOn: {
+    backgroundColor: '#27AE60',
+    alignItems: 'flex-end',
+  },
+  rectSwitchThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 2,
+    borderWidth: 2,
+    borderColor: '#0D1B2A',
+  },
+  rectSwitchThumbOff: {
+    backgroundColor: '#95A5A6',
+  },
+  rectSwitchThumbOn: {
+    backgroundColor: '#ECF0F1',
   },
 
-  // нижняя зона
-  bottomArea: {
-    marginTop: 8,
-    paddingTop: 4,
+  // Кастомный прямоугольный Slider
+  sliderContainer: {
+    height: 32,
+    position: 'relative',
+  },
+  sliderTrack: {
+    height: 28,
+    backgroundColor: '#0D1B2A',
+    borderRadius: 4,
+    justifyContent: 'center',
+    position: 'relative',
+    borderWidth: 2,
+    borderColor: '#0D1B2A',
+  },
+  sliderFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    height: '100%',
+    backgroundColor: '#6096BA',
+    zIndex: 1,
+  },
+  gridLine: {
+    position: 'absolute',
+    width: 2,
+    height: '100%',
+    backgroundColor: 'rgba(13, 27, 42, 0.6)',
+    top: 0,
+    zIndex: 2,
+  },
+  sliderThumb: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    top: 0,
+    marginLeft: -16,
+    borderRadius: 3,
+    borderWidth: 3,
+    borderColor: '#E7ECEF',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 6,
   },
 
   buttonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 8,
-    marginBottom: 8,
+    marginTop: 4,
   },
 
-  infoBox: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#0D1B2A',
-    backgroundColor: 'rgba(96, 150, 186, 0.9)',
-  },
-  infoText: {
-    fontSize: 12,
-    fontFamily: 'Unbounded',
-    color: '#0D1B2A',
-    textAlign: 'center',
+  bottomButton: {
+    flex: 1,
   },
 });
