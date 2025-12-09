@@ -937,6 +937,7 @@ export default function GameScreen({ navigation, route }: Props) {
               ref={boardRef}
               board={gameState.board}
               currentTetromino={gameState.currentTetromino}
+              ghostTetrominoY={gameState.ghostTetrominoY}
             />
           </View>
         </View>

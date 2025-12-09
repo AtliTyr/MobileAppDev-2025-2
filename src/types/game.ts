@@ -19,6 +19,7 @@ export interface GameState {
   isGameOver: boolean;
   isPaused: boolean;
   gameSpeed: number;
+  ghostTetrominoY: number;
 }
 
 // Конфигурация игры (БЕЗ языка)
@@ -60,4 +61,5 @@ export const createInitialGameState = (config: GameConfig): GameState => ({
   isGameOver: false,
   isPaused: false,
   gameSpeed: config.initialSpeed,
+  ghostTetrominoY: 0,
 });

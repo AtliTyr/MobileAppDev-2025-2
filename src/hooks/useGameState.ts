@@ -41,6 +41,7 @@ export const useGameState = (
       isGameOver: false,
       isPaused: false,
       gameSpeed: config.initialSpeed,
+      ghostTetrominoY: 0,
     };
   };
 
@@ -53,6 +54,26 @@ export const useGameState = (
 
   const lockDelayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lockDelayActiveRef = useRef(false);
+
+  const getGhostTetrominoY = useCallback(
+    (tetromino: Tetromino | null, board: typeof gameState.board): number => {
+      if (!tetromino) return 0;
+
+      let y = tetromino.position.y;
+      
+      while (
+        !checkCollision(tetromino, board, {
+          x: tetromino.position.x,
+          y: y + 1,
+        })
+      ) {
+        y += 1;
+      }
+      
+      return y;
+    },
+    [checkCollision]
+  );
 
   const clearLockDelay = useCallback(() => {
     if (lockDelayTimerRef.current) {
@@ -79,7 +100,6 @@ export const useGameState = (
       let newGameSpeed = prev.gameSpeed;
 
       if (linesCleared > 0) {
-        // 👉 триггерим колбэк для анимации
         if (onLinesCleared) {
           onLinesCleared(linesCleared);
         }
@@ -88,9 +108,11 @@ export const useGameState = (
           linesCleared,
           prev.level
         );
+
         newScore = prev.score + lineClearScore;
 
         const totalLines = prev.linesCleared + linesCleared;
+
         if (
           Math.floor(totalLines / 10) >
           Math.floor(prev.linesCleared / 10)
@@ -101,7 +123,6 @@ export const useGameState = (
             prev.gameSpeed - config.speedIncreasePerLevel
           );
 
-          // 🎉 ДОБАВЬТЕ ЭТО: триггерим колбэк для level up
           if (onLevelUp) {
             onLevelUp();
           }
@@ -118,16 +139,24 @@ export const useGameState = (
             targetWordLetters: config.targetWord?.split('') ?? undefined,
           }
         );
+
         newNextTetrominos.push(...additionalTetrominos);
       }
 
       let isGameOver = false;
+
       if (newCurrentTetromino) {
         const canSpawn = !checkCollision(newCurrentTetromino, boardAfterClear);
+
         if (!canSpawn) {
           isGameOver = true;
         }
       }
+
+      // 👻 ВАЖНО: Обновляем ghostTetrominoY для нового тетромино ДО возврата
+      const ghostY = newCurrentTetromino
+        ? getGhostTetrominoY(newCurrentTetromino, boardAfterClear)
+        : 0;
 
       clearLockDelay();
 
@@ -142,6 +171,7 @@ export const useGameState = (
         linesCleared: prev.linesCleared + linesCleared,
         isGameOver,
         canHold: true,
+        ghostTetrominoY: ghostY,
       };
     },
     [
@@ -153,6 +183,7 @@ export const useGameState = (
       config.targetWord,
       onLinesCleared,
       onLevelUp,
+      getGhostTetrominoY,
     ]
   );
 
@@ -198,10 +229,13 @@ export const useGameState = (
           prev.board,
           newPosition
         );
+
         if (collision) {
           activateLockDelay();
           return prev;
         }
+
+        const ghostY = getGhostTetrominoY(prev.currentTetromino, prev.board);
 
         return {
           ...prev,
@@ -209,6 +243,7 @@ export const useGameState = (
             ...prev.currentTetromino,
             position: newPosition,
           },
+          ghostTetrominoY: ghostY,
         };
       });
     },
@@ -230,10 +265,12 @@ export const useGameState = (
           prev.board,
           newPosition
         );
+
         if (collision) {
           if (dy > 0 && !lockDelayActiveRef.current) {
             activateLockDelay();
           }
+
           return prev;
         }
 
@@ -261,13 +298,16 @@ export const useGameState = (
           }
         }
 
+        const ghostY = getGhostTetrominoY(updatedTetromino, prev.board);
+
         return {
           ...prev,
           currentTetromino: updatedTetromino,
+          ghostTetrominoY: ghostY,
         };
       });
     },
-    [checkCollision, activateLockDelay, clearLockDelay]
+    [checkCollision, activateLockDelay, clearLockDelay, getGhostTetrominoY]
   );
 
   const rotateTetromino = useCallback(
@@ -277,6 +317,7 @@ export const useGameState = (
           return prev;
 
         const rotated = tryRotation(prev.currentTetromino, prev.board, dir);
+
         if (!rotated) {
           return prev;
         }
@@ -294,13 +335,16 @@ export const useGameState = (
           clearLockDelay();
         }
 
+        const ghostY = getGhostTetrominoY(rotated, prev.board);
+
         return {
           ...prev,
           currentTetromino: rotated,
+          ghostTetrominoY: ghostY,
         };
       });
     },
-    [tryRotation, checkCollision, activateLockDelay, clearLockDelay]
+    [tryRotation, checkCollision, activateLockDelay, clearLockDelay, getGhostTetrominoY]
   );
 
   const holdTetromino = useCallback(() => {
@@ -340,11 +384,17 @@ export const useGameState = (
               targetWordLetters: config.targetWord?.split('') ?? undefined,
             }
           );
+
           newNextTetrominos.push(...additionalTetrominos);
         }
 
         clearLockDelay();
         resetTick(80);
+
+        // 👻 Обновляем позицию призрака для нового тетромино
+        const ghostY = newCurrentTetromino
+          ? getGhostTetrominoY(newCurrentTetromino, prev.board)
+          : 0;
 
         return {
           ...prev,
@@ -352,11 +402,11 @@ export const useGameState = (
           nextTetrominos: newNextTetrominos,
           heldTetromino: newHeldTetromino,
           canHold: false,
+          ghostTetrominoY: ghostY,
         };
       }
 
       const newCurrentTetromino = prev.heldTetromino;
-
       const letters = prev.currentTetromino.cells
         .flat()
         .filter((cell) => !cell.isEmpty)
@@ -375,14 +425,18 @@ export const useGameState = (
       clearLockDelay();
       resetTick(80);
 
+      // 👻 Обновляем позицию призрака для восстановленного тетромино
+      const ghostY = getGhostTetrominoY(newCurrentTetromino, prev.board);
+
       return {
         ...prev,
         currentTetromino: newCurrentTetromino,
         heldTetromino: newHeldTetromino,
         canHold: false,
+        ghostTetrominoY: ghostY,
       };
     });
-  }, [clearLockDelay, resetTick, config.targetWord, config.nextTetrominosCount]);
+  }, [clearLockDelay, resetTick, config.targetWord, config.nextTetrominosCount, getGhostTetrominoY]);
 
   const hardDrop = useCallback(() => {
     setGameState((prev) => {
@@ -475,22 +529,28 @@ export const useGameState = (
             targetWordLetters: config.targetWord?.split('') ?? undefined,
           }
         );
+
         newNextTetrominos.push(...additionalTetrominos);
       }
 
       if (newCurrentTetromino) {
+        // 👻 Обновляем позицию призрака для нового тетромино
+        const ghostY = getGhostTetrominoY(newCurrentTetromino, prev.board);
+
         return {
           ...prev,
           currentTetromino: newCurrentTetromino,
           nextTetrominos: newNextTetrominos,
           canHold: true,
+          ghostTetrominoY: ghostY,
         };
       }
 
       return prev;
     });
+
     resetTick(80);
-  }, [resetTick, config.nextTetrominosCount, config.targetWord]);
+  }, [resetTick, config.nextTetrominosCount, config.targetWord, getGhostTetrominoY]);
 
   const setCurrentTetromino = useCallback((tetromino: Tetromino | null) => {
     setGameState((prev) => ({ ...prev, currentTetromino: tetromino }));

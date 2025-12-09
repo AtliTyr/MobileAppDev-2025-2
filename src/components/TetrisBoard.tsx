@@ -15,6 +15,7 @@ import { getLetterStyleForColor } from '../utils/textColor';
 interface Props {
   board: GameBoard;
   currentTetromino?: Tetromino | null;
+  ghostTetrominoY?: number;
   style?: ViewStyle | ViewStyle[];
 }
 
@@ -28,7 +29,7 @@ const ROWS = 20;
 const COLS = 10;
 
 const TetrisBoard = forwardRef<TetrisBoardHandle, Props>(
-  ({ board, currentTetromino, style }, ref) => {
+  ({ board, currentTetromino, style, ghostTetrominoY }, ref) => {
     const shakeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(1)).current;
     const flashAnim = useRef(new Animated.Value(0)).current;
@@ -100,7 +101,7 @@ const TetrisBoard = forwardRef<TetrisBoardHandle, Props>(
     }));
 
     const renderCell = (row: number, col: number) => {
-      // Текущая падающая фигура
+      // Текущая падающая фигура (рендерится ПЕРВОЙ - самый приоритет!)
       if (currentTetromino) {
         const { x, y } = currentTetromino.position;
 
@@ -111,6 +112,9 @@ const TetrisBoard = forwardRef<TetrisBoardHandle, Props>(
 
             if (row === y + i && col === x + j) {
               const letterStyle = getLetterStyleForColor(cellData.color);
+              
+              // Определяем цвет буквы из letterStyle (белые или чёрные)
+              const isWhiteText = letterStyle.color === '#FFFFFF';
 
               return (
                 <View
@@ -124,7 +128,22 @@ const TetrisBoard = forwardRef<TetrisBoardHandle, Props>(
                     },
                   ]}
                 >
-                  <Text style={[styles.letter, letterStyle]}>
+                  <Text
+                    style={[
+                      styles.letter,
+                      letterStyle,
+                      {
+                        fontSize: 12,
+                        fontWeight: '800',
+                        // Добавляем тень только для белых букв (для контраста)
+                        ...(isWhiteText && {
+                          textShadowColor: 'rgba(0, 0, 0, 0.5)',
+                          textShadowOffset: { width: 1, height: 1 },
+                          textShadowRadius: 2,
+                        }),
+                      },
+                    ]}
+                  >
                     {cellData.letter}
                   </Text>
                 </View>
@@ -134,10 +153,50 @@ const TetrisBoard = forwardRef<TetrisBoardHandle, Props>(
         }
       }
 
+      // 👻 Призрак - рендерится ВТОРЫМ (видно только если активный не занимает ячейку)
+      if (currentTetromino && ghostTetrominoY !== undefined) {
+        const { x, y } = currentTetromino.position;
+
+        // Не рендерим призрак если он совпадает с активным тетромино по позиции
+        if (ghostTetrominoY !== y) {
+          for (let i = 0; i < currentTetromino.cells.length; i++) {
+            for (let j = 0; j < currentTetromino.cells[i].length; j++) {
+              const cellData = currentTetromino.cells[i][j];
+              if (cellData.isEmpty) continue;
+
+              if (row === ghostTetrominoY + i && col === x + j) {
+                return (
+                  <View
+                    key={`${row}-${col}-ghost`}
+                    style={[
+                      styles.cell,
+                      {
+                        borderWidth: 2.5,
+                        borderColor: cellData.color,
+                        backgroundColor: cellData.color,
+                        opacity: 0.25,
+                        shadowColor: cellData.color,
+                        shadowOpacity: 0.6,
+                        shadowRadius: 3,
+                        shadowOffset: { width: 0, height: 0 },
+                        elevation: 2,
+                      },
+                    ]}
+                  />
+                );
+              }
+            }
+          }
+        }
+      }
+
       // Статичная клетка
       const cell = board[row]?.[col];
       if (cell) {
         const letterStyle = getLetterStyleForColor(cell.color);
+        
+        // Определяем цвет буквы из letterStyle (белые или чёрные)
+        const isWhiteText = letterStyle.color === '#FFFFFF';
 
         return (
           <View
@@ -151,7 +210,22 @@ const TetrisBoard = forwardRef<TetrisBoardHandle, Props>(
               },
             ]}
           >
-            <Text style={[styles.letter, letterStyle]}>
+            <Text
+              style={[
+                styles.letter,
+                letterStyle,
+                {
+                  fontSize: 12,
+                  fontWeight: '800',
+                  // Добавляем тень только для белых букв (для контраста)
+                  ...(isWhiteText && {
+                    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+                    textShadowOffset: { width: 1, height: 1 },
+                    textShadowRadius: 2,
+                  }),
+                },
+              ]}
+            >
               {cell.letter}
             </Text>
           </View>
