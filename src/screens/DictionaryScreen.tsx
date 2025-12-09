@@ -10,6 +10,7 @@ import {
   ImageBackground,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WordCard from '../components/WordCard';
@@ -24,13 +25,6 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Dictionary'>;
 
-if (
-  Platform.OS === 'android' &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 export default function DictionaryScreen({ navigation }: Props) {
   const [selectedWord, setSelectedWord] = useState<WordData | null>(null);
   const [wordModalVisible, setWordModalVisible] = useState(false);
@@ -40,23 +34,33 @@ export default function DictionaryScreen({ navigation }: Props) {
     useState<WordSet | null>(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const storedSetId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
-        if (storedSetId) setSelectedSetId(storedSetId);
+  // ✅ Функция загрузки данных
+  const loadData = async () => {
+    try {
+      const storedSetId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
+      if (storedSetId) setSelectedSetId(storedSetId);
 
-        const rawFound = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
-        const parsed: Record<string, string[]> = rawFound
-          ? JSON.parse(rawFound)
-          : {};
-        setFoundBySet(parsed);
-      } catch (e) {
-        console.log('Ошибка загрузки состояния словаря', e);
-      }
-    };
-    load();
+      const rawFound = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
+      const parsed: Record<string, string[]> = rawFound
+        ? JSON.parse(rawFound)
+        : {};
+      setFoundBySet(parsed);
+    } catch (e) {
+      console.log('Ошибка загрузки состояния словаря', e);
+    }
+  };
+
+  // ✅ Загрузка при монтировании
+  useEffect(() => {
+    loadData();
   }, []);
+
+  // ✅ Обновление при каждом возврате на экран (для мгновенного сброса)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   const handleOpenWord = (word: WordData) => {
     setSelectedWord(word);
@@ -110,16 +114,6 @@ export default function DictionaryScreen({ navigation }: Props) {
         activeOpacity={0.9}
         style={styles.setCard}
       >
-        {/* Фоновый градиент */}
-        <View
-          style={[
-            styles.gradientBg,
-            {
-              backgroundColor: gradient[0],
-            },
-          ]}
-        />
-
         {/* Контент */}
         <View style={styles.cardContent}>
           {/* Верх: прогресс + статистика + бейдж */}
@@ -147,18 +141,18 @@ export default function DictionaryScreen({ navigation }: Props) {
           </View>
 
           {/* Заголовок и описание */}
-          <Text style={styles.setTitle}>{set.name}</Text>
-          <Text style={styles.setDesc} numberOfLines={2}>{set.description}</Text>
+          <Text style={styles.setTitle}>{set.emoji} {set.name}</Text>
+          <Text style={styles.setDesc}>{set.description}</Text>
 
           {/* Кнопка выбора */}
           {!isSelected && (
             <TouchableOpacity
-              style={styles.selectChip}
               onPress={(e) => {
                 e.stopPropagation();
                 handleSelectSet(set.id);
               }}
               activeOpacity={0.8}
+              style={styles.selectChip}
             >
               <Text style={styles.selectChipText}>Выбрать →</Text>
             </TouchableOpacity>
@@ -185,7 +179,6 @@ export default function DictionaryScreen({ navigation }: Props) {
         {/* Крестик закрытия в правом верхнем углу */}
         <TouchableOpacity
           style={styles.closeButton}
-          hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
           onPress={() => navigation.goBack()}
         >
           <Text style={styles.closeButtonText}>✕</Text>
@@ -195,17 +188,11 @@ export default function DictionaryScreen({ navigation }: Props) {
         <View style={styles.header}>
           <View style={styles.headerTextBlock}>
             <Text style={styles.headerTitle}>Словарь</Text>
-            <Text style={styles.headerSub}>
-              {builtInWordSets.length} наборов слов
-            </Text>
+            <Text style={styles.headerSub}>{builtInWordSets.length} наборов слов</Text>
           </View>
         </View>
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {builtInWordSets.map((set, i) => renderSetCard(set, i))}
         </ScrollView>
 
@@ -298,7 +285,6 @@ const styles = StyleSheet.create({
     color: '#0D1B2A',
     marginTop: 2,
   },
-
   scroll: {
     flex: 1,
   },
@@ -306,22 +292,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
-
   // Карточки наборов
   setCard: {
     height: 200,
     borderRadius: 24,
     marginBottom: 20,
     overflow: 'hidden',
+    backgroundColor: 'rgba(96, 150, 186, 0.85)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.5,
     shadowRadius: 16,
     elevation: 10,
-  },
-  gradientBg: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.85,
   },
   cardContent: {
     flex: 1,
@@ -383,7 +365,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-
   setTitle: {
     fontSize: 20,
     fontFamily: 'Unbounded',
@@ -399,7 +380,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginBottom: 12,
   },
-
   selectChip: {
     alignSelf: 'flex-start',
     backgroundColor: '#FFFFFF',
@@ -417,5 +397,26 @@ const styles = StyleSheet.create({
     fontFamily: 'Unbounded',
     fontWeight: 'bold',
     color: '#1a1f2e',
+  },
+  // ✅ Кнопка сброса
+  dangerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#c41e3a',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 20,
+    gap: 10,
+  },
+  dangerButtonText: {
+    fontSize: 15,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#E7ECEF',
   },
 });

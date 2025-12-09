@@ -11,6 +11,7 @@ import {
   Text,
   Modal,
   ImageBackground,
+  Animated,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -41,14 +42,10 @@ import {
 
 import WordCard from '../components/WordCard';
 import { DEFAULT_GAME_CONFIG } from '../types/game';
-
-import {
-  CelebrationType,
-  EmojiParticle,
-  generateEmojiParticles,
-} from '../utils/celebration';
  
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
+
+export type CelebrationType = 'tetris' | 'word' | 'level_up' | null;
 
 export default function GameScreen({ navigation, route }: Props) {
   // ========================================
@@ -105,7 +102,7 @@ export default function GameScreen({ navigation, route }: Props) {
 
   const { gameState, actions } = useGameState(
     effectiveConfig,
-    undefined,
+    savedGameData?.gameState,  // ✅ Передаём сохранённое состояние
     (clearedLines) => {
       if (!boardRef.current) return;
       if (clearedLines === 4) {
@@ -114,6 +111,10 @@ export default function GameScreen({ navigation, route }: Props) {
       } else {
         boardRef.current.shake();
       }
+    },
+    () => {
+      console.log('🆙 Level Up!');
+      triggerCelebration('level_up');
     }
   );
 
@@ -141,11 +142,15 @@ export default function GameScreen({ navigation, route }: Props) {
   // ✨ Карточка только что найденного слова
   const [justFoundWord, setJustFoundWord] = useState<WordData | null>(null);
   const [justFoundVisible, setJustFoundVisible] = useState(false);
-
-  const [celebrationType, setCelebrationType] =
-    useState<CelebrationType>(null);
-  const [emojiParticles, setEmojiParticles] = useState<EmojiParticle[]>([]);
+  
+  
+  const [celebrationType, setCelebrationType] = useState<CelebrationType>(null);  
+  const [celebrationOpacity] = useState(new Animated.Value(1));
   const celebrationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+// Удалите эту строку:
+// const [emojiParticles, setEmojiParticles] = useState<EmojiParticle[]>([]);
+
 
 
   // ========================================
@@ -160,22 +165,40 @@ export default function GameScreen({ navigation, route }: Props) {
 
   const boardRef = useRef<TetrisBoardHandle | null>(null);
 
+  const celebrationText = (type: CelebrationType) => {
+    switch(type) {
+      case 'tetris':
+        return 'TETRIS';
+      case 'word':
+        return 'НОВОЕ СЛОВО';
+      case 'level_up':
+        return 'ПОВЫШЕНИЕ УРОВНЯ';
+      default:
+        return '';
+    }
+  };
+
   const triggerCelebration = useCallback((type: CelebrationType) => {
     if (!type) return;
 
-    const particles = generateEmojiParticles(15);
-    console.log('🎉 triggerCelebration', type, 'particles:', particles.length);
-
+    console.log('🎉 triggerCelebration', type);
+    
     setCelebrationType(type);
-    setEmojiParticles(particles);
+    celebrationOpacity.setValue(1);
 
     if (celebrationTimeoutRef.current) {
       clearTimeout(celebrationTimeoutRef.current);
     }
 
+    // Запускаем анимацию fade-out
+    Animated.timing(celebrationOpacity, {
+      toValue: 0,
+      duration: 1000,
+      useNativeDriver: true,
+    }).start();
+
     celebrationTimeoutRef.current = setTimeout(() => {
       setCelebrationType(null);
-      setEmojiParticles([]);
       celebrationTimeoutRef.current = null;
     }, 1000);
   }, []);
@@ -1111,36 +1134,21 @@ export default function GameScreen({ navigation, route }: Props) {
         />
 
         {celebrationType && (
-          <View pointerEvents="none" style={celebrationOverlay.container}>
-            {/* {console.log('🎊 overlay render, particles=', emojiParticles.length)} */}
-
+          <Animated.View
+            style={[
+              celebrationOverlay.container,
+              { opacity: celebrationOpacity }
+            ]}
+            pointerEvents="none"
+          >
             <View style={celebrationOverlay.centerWrapper}>
               <View style={celebrationOverlay.center}>
                 <Text style={celebrationOverlay.title}>
-                  {celebrationType === 'tetris' ? 'TETRIS' : 'НОВОЕ СЛОВО'}
+                  { celebrationText(celebrationType) }
                 </Text>
               </View>
             </View>
-
-            {emojiParticles.map((p) => (
-              <Text
-                key={p.id}
-                style={[
-                  celebrationOverlay.emoji,
-                  {
-                    top: `${p.topPercent}%`,
-                    [p.side]: 0,
-                    transform: [
-                      { translateX: p.offsetX },
-                      { rotate: `${p.rotate}deg` },
-                    ],
-                  } as any,
-                ]}
-              >
-                {p.char}
-              </Text>
-            ))}
-          </View>
+          </Animated.View>
         )}
 
       </View>
@@ -1810,8 +1818,8 @@ const celebrationOverlay = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 999, // чтобы поверх борда/панелей
-    backgroundColor: 'rgba(95, 95, 95, 0.5)',
+    zIndex: 999,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   centerWrapper: {
     position: 'absolute',
@@ -1823,22 +1831,17 @@ const celebrationOverlay = StyleSheet.create({
     alignItems: 'center',
   },
   center: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    // backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   title: {
-    fontSize: 42,
+    fontSize: 56,
     fontWeight: 'bold',
+    fontFamily: 'Unbounded',
     color: '#FFE066',
     textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  emoji: {
-    position: 'absolute',
-    fontSize: 48,
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
 });

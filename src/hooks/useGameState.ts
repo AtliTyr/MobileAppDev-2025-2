@@ -13,7 +13,8 @@ import { useCollisionDetection } from './useCollisionDetection';
 export const useGameState = (
   config: GameConfig = DEFAULT_GAME_CONFIG,
   initialGameState?: GameState,
-  onLinesCleared?: (count: number) => void
+  onLinesCleared?: (count: number) => void,
+  onLevelUp?: () => void,
 ) => {
   const LOCK_DELAY_TIME = 500;
 
@@ -69,6 +70,7 @@ export const useGameState = (
         prev.currentTetromino,
         prev.board
       );
+
       const { newBoard: boardAfterClear, linesCleared } =
         boardManager.clearCompletedLines(newBoard);
 
@@ -98,6 +100,11 @@ export const useGameState = (
             100,
             prev.gameSpeed - config.speedIncreasePerLevel
           );
+
+          // 🎉 ДОБАВЬТЕ ЭТО: триггерим колбэк для level up
+          if (onLevelUp) {
+            onLevelUp();
+          }
         }
       }
 
@@ -118,7 +125,7 @@ export const useGameState = (
       if (newCurrentTetromino) {
         const canSpawn = !checkCollision(newCurrentTetromino, boardAfterClear);
         if (!canSpawn) {
-          isGameOver = false;
+          isGameOver = true;
         }
       }
 
@@ -145,6 +152,7 @@ export const useGameState = (
       config.nextTetrominosCount,
       config.targetWord,
       onLinesCleared,
+      onLevelUp,
     ]
   );
 

@@ -3,11 +3,14 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, ImageBackground, TouchableOpacity, PanResponder, GestureResponderEvent, LayoutChangeEvent } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ImageBackground, TouchableOpacity, Alert } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import PrimaryButton from '../components/PrimaryButton';
 import { useAudio } from '../context/AudioContext';
 import * as Brightness from 'expo-brightness';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_FOUND_WORDS } from '../types/wordSets';
 import { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
@@ -18,27 +21,35 @@ const DEFAULT_BRIGHTNESS = 0.05;
 const RectSwitch = ({ value, onValueChange }: { value: boolean; onValueChange: (val: boolean) => void }) => {
   return (
     <TouchableOpacity
-      style={[styles.rectSwitch, value ? styles.rectSwitchOn : styles.rectSwitchOff]}
       onPress={() => onValueChange(!value)}
       activeOpacity={0.8}
+      style={[
+        styles.rectSwitch,
+        value ? styles.rectSwitchOn : styles.rectSwitchOff,
+      ]}
     >
-      <View style={[styles.rectSwitchThumb, value ? styles.rectSwitchThumbOn : styles.rectSwitchThumbOff]} />
+      <View
+        style={[
+          styles.rectSwitchThumb,
+          value ? styles.rectSwitchThumbOn : styles.rectSwitchThumbOff,
+        ]}
+      />
     </TouchableOpacity>
   );
 };
 
 // Кастомный прямоугольный Slider
-const RectSlider = ({ 
-  value, 
-  onValueChange, 
-  minimumValue = 0, 
+const RectSlider = ({
+  value,
+  onValueChange,
+  minimumValue = 0,
   maximumValue = 100,
   step = 1,
   thumbColor = '#0D1B2A',
   onSlideStart,
   onSlideEnd,
-}: { 
-  value: number; 
+}: {
+  value: number;
   onValueChange: (val: number) => void;
   minimumValue?: number;
   maximumValue?: number;
@@ -49,18 +60,15 @@ const RectSlider = ({
 }) => {
   const sliderRef = useRef<View>(null);
   const [layout, setLayout] = useState({ width: 0, x: 0 });
-
   const normalizedValue = ((value - minimumValue) / (maximumValue - minimumValue)) * 100;
 
   const updateValue = (pageX: number) => {
     if (layout.width === 0) return;
-    
     const touchX = pageX - layout.x;
     const percentage = Math.max(0, Math.min(100, (touchX / layout.width) * 100));
     const rawValue = minimumValue + (percentage / 100) * (maximumValue - minimumValue);
     const steppedValue = Math.round(rawValue / step) * step;
     const clampedValue = Math.max(minimumValue, Math.min(maximumValue, steppedValue));
-    
     onValueChange(clampedValue);
   };
 
@@ -79,12 +87,12 @@ const RectSlider = ({
   // Генерируем 19 линий для создания 20 сегментов
   const renderGrid = () => {
     return Array.from({ length: 19 }).map((_, i) => (
-      <View 
-        key={i} 
+      <View
+        key={i}
         style={[
           styles.gridLine,
-          { left: `${((i + 1) * 5)}%` }
-        ]} 
+          { left: `${((i + 1) / 20) * 100}%` },
+        ]}
       />
     ));
   };
@@ -93,7 +101,6 @@ const RectSlider = ({
     <View style={styles.sliderContainer}>
       <View
         ref={sliderRef}
-        style={styles.sliderTrack}
         onStartShouldSetResponder={() => true}
         onMoveShouldSetResponder={() => true}
         onResponderGrant={(e) => {
@@ -107,28 +114,23 @@ const RectSlider = ({
           onSlideEnd?.();
         }}
         onLayout={handleLayout}
+        style={styles.sliderTrack}
       >
         <View style={[styles.sliderFill, { width: `${normalizedValue}%` }]} />
         {renderGrid()}
+        <View
+          style={[
+            styles.sliderThumb,
+            { left: `${normalizedValue}%`, backgroundColor: thumbColor },
+          ]}
+        />
       </View>
-      <View 
-        style={[
-          styles.sliderThumb, 
-          { 
-            left: `${normalizedValue}%`,
-            backgroundColor: thumbColor,
-          }
-        ]} 
-        pointerEvents="none"
-      />
     </View>
   );
 };
 
-
 export default function SettingsScreen({ navigation }: Props) {
   const { updateSettings, resetSettings, getSettingsForDisplay, getDefaultSettings } = useAudio();
-
   const [displaySettings, setDisplaySettings] = useState(() =>
     getSettingsForDisplay()
   );
@@ -179,13 +181,39 @@ export default function SettingsScreen({ navigation }: Props) {
     resetSettings();
     const defaults = getDefaultSettings();
     setDisplaySettings(defaults);
-
     try {
       setBrightness(DEFAULT_BRIGHTNESS);
       await Brightness.setBrightnessAsync(DEFAULT_BRIGHTNESS);
     } catch (error) {
       console.error('❌ Ошибка сброса яркости:', error);
     }
+  };
+
+  // ✅ Функция сброса прогресса
+  const handleResetProgress = () => {
+    Alert.alert(
+      '⚠️ Сброс прогресса',
+      'Вы уверены? Все найденные слова будут удалены. Это действие нельзя отменить.',
+      [
+        {
+          text: 'Отмена',
+          style: 'cancel',
+        },
+        {
+          text: 'Сбросить',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.removeItem(STORAGE_FOUND_WORDS);
+              Alert.alert('✅ Готово', 'Прогресс успешно сброшен');
+            } catch (e) {
+              console.log('Ошибка сброса прогресса', e);
+              Alert.alert('❌ Ошибка', 'Не удалось сбросить прогресс');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -198,7 +226,6 @@ export default function SettingsScreen({ navigation }: Props) {
         {/* Крестик закрытия */}
         <TouchableOpacity
           style={styles.closeButton}
-          hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
           onPress={() => navigation.goBack()}
         >
           <Text style={styles.closeButtonText}>✕</Text>
@@ -208,116 +235,99 @@ export default function SettingsScreen({ navigation }: Props) {
         <View style={styles.header}>
           <View style={styles.headerTextBlock}>
             <Text style={styles.headerTitle}>Настройки</Text>
-            <Text style={styles.headerSubtitle}>
-              Музыка, звуки и яркость экрана
-            </Text>
+            <Text style={styles.headerSubtitle}>Музыка, звуки и яркость экрана</Text>
           </View>
         </View>
 
         <ScrollView
           style={styles.container}
           contentContainerStyle={styles.contentContainer}
-          scrollEnabled={scrollEnabled} // Добавили prop
+          scrollEnabled={scrollEnabled}
         >
-          <View>
-            {/* Музыка */}
-            <View style={styles.section}>
-              <View style={styles.sectionTopRow}>
-                <Text style={styles.sectionLabel}>МУЗЫКА</Text>
-                <View style={styles.sectionTopRight}>
-                  <Text style={styles.valueBadge}>
-                    {displaySettings.musicVolume}%
-                  </Text>
-                  <RectSwitch 
-                    value={displaySettings.musicEnabled}
-                    onValueChange={handleMusicToggle}
-                  />
-                </View>
+          {/* Музыка */}
+          <View style={styles.section}>
+            <View style={styles.sectionTopRow}>
+              <Text style={styles.sectionLabel}>МУЗЫКА</Text>
+              <View style={styles.sectionTopRight}>
+                <Text style={styles.valueBadge}>{displaySettings.musicVolume}%</Text>
+                <RectSwitch value={displaySettings.musicEnabled} onValueChange={handleMusicToggle} />
               </View>
-
-              <Text style={styles.sectionDescription}>
-                Фоновая музыка в меню и во время игры.
-              </Text>
-
-              <RectSlider
-                value={displaySettings.musicVolume}
-                onValueChange={handleMusicVolumeChange}
-                minimumValue={0}
-                maximumValue={100}
-                step={1}
-                thumbColor="#0D1B2A"
-              />
             </View>
-
-            {/* Звуки */}
-            <View style={styles.section}>
-              <View style={styles.sectionTopRow}>
-                <Text style={styles.sectionLabel}>ЗВУКИ</Text>
-                <View style={styles.sectionTopRight}>
-                  <Text style={styles.valueBadge}>
-                    {displaySettings.soundsVolume}%
-                  </Text>
-                  <RectSwitch 
-                    value={displaySettings.soundsEnabled}
-                    onValueChange={handleSoundsToggle}
-                  />
-                </View>
-              </View>
-
-              <Text style={styles.sectionDescription}>
-                Эффекты линий, фигур и слов.
-              </Text>
-
-              <RectSlider
-                value={displaySettings.soundsVolume}
-                onValueChange={handleSoundsVolumeChange}
-                minimumValue={0}
-                maximumValue={100}
-                step={1}
-                thumbColor="#0D1B2A"
-              />
-            </View>
-
-            {/* Яркость */}
-            <View style={styles.section}>
-              <View style={styles.sectionTopRow}>
-                <Text style={styles.sectionLabel}>ЯРКОСТЬ</Text>
-                <Text style={styles.valueBadge}>
-                  {(brightness * 100).toFixed(0)}%
-                </Text>
-              </View>
-
-              <Text style={styles.sectionDescription}>
-                Влияет на общую яркость экрана устройства.
-              </Text>
-
-              <RectSlider
-                value={brightness}
-                onValueChange={handleBrightnessChange}
-                minimumValue={0}
-                maximumValue={1}
-                step={0.05}
-                thumbColor="#FFE066"
-              />
-            </View>
+            <Text style={styles.sectionDescription}>Фоновая музыка в меню и во время игры.</Text>
+            <RectSlider
+              value={displaySettings.musicVolume}
+              onValueChange={handleMusicVolumeChange}
+              onSlideStart={() => setScrollEnabled(false)}
+              onSlideEnd={() => setScrollEnabled(true)}
+            />
           </View>
 
-          {/* Кнопки сразу после секций */}
+          {/* Звуки */}
+          <View style={styles.section}>
+            <View style={styles.sectionTopRow}>
+              <Text style={styles.sectionLabel}>ЗВУКИ</Text>
+              <View style={styles.sectionTopRight}>
+                <Text style={styles.valueBadge}>{displaySettings.soundsVolume}%</Text>
+                <RectSwitch value={displaySettings.soundsEnabled} onValueChange={handleSoundsToggle} />
+              </View>
+            </View>
+            <Text style={styles.sectionDescription}>Эффекты линий, фигур и слов.</Text>
+            <RectSlider
+              value={displaySettings.soundsVolume}
+              onValueChange={handleSoundsVolumeChange}
+              onSlideStart={() => setScrollEnabled(false)}
+              onSlideEnd={() => setScrollEnabled(true)}
+            />
+          </View>
+
+          {/* Яркость */}
+          <View style={styles.section}>
+            <View style={styles.sectionTopRow}>
+              <Text style={styles.sectionLabel}>ЯРКОСТЬ</Text>
+              <Text style={styles.valueBadge}>{(brightness * 100).toFixed(0)}%</Text>
+            </View>
+            <Text style={styles.sectionDescription}>Влияет на общую яркость экрана устройства.</Text>
+            <RectSlider
+              value={brightness}
+              onValueChange={handleBrightnessChange}
+              minimumValue={0.01}
+              maximumValue={1}
+              step={0.01}
+              onSlideStart={() => setScrollEnabled(false)}
+              onSlideEnd={() => setScrollEnabled(true)}
+            />
+          </View>
+
+          {/* Кнопки */}
           <View style={styles.buttonsRow}>
             <PrimaryButton
-              title="📖 КАК ИГРАТЬ"
-              onPress={() => navigation.navigate('Instructions')}
+              title="Сбросить"
+              onPress={handleResetSettings}
               variant="secondary"
               small
               style={styles.bottomButton}
             />
             <PrimaryButton
-              title="🔄 СБРОСИТЬ"
-              onPress={handleResetSettings}
-              variant="accent"
+              title="Инструкции"
+              onPress={() => navigation.navigate('Instructions')}
+              variant="secondary"
               small
               style={styles.bottomButton}
             />
+          </View>
+
+          {/* ✅ Опасная зона - сброс прогресса */}
+          <View style={styles.dangerZone}>
+            <Text style={styles.dangerZoneTitle}>⚠️ Опасная зона</Text>
+            
+            <TouchableOpacity
+              style={styles.dangerButton}
+              onPress={handleResetProgress}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="delete-forever" size={24} color="#E7ECEF" />
+              <Text style={styles.dangerButtonText}>Сбросить весь прогресс</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </View>
@@ -336,12 +346,10 @@ const styles = StyleSheet.create({
   imageStyle: {
     opacity: 0.5,
   },
-
   screen: {
     flex: 1,
     backgroundColor: 'rgba(13, 27, 42, 0.8)',
   },
-
   // Крестик закрытия
   closeButton: {
     position: 'absolute',
@@ -368,7 +376,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#0D1B2A',
   },
-
   // Header
   header: {
     alignItems: 'flex-start',
@@ -402,7 +409,6 @@ const styles = StyleSheet.create({
     color: '#0D1B2A',
     marginTop: 2,
   },
-
   container: {
     flex: 1,
   },
@@ -410,7 +416,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
-
   // карточки секций
   section: {
     backgroundColor: '#A3CEF1',
@@ -426,20 +431,17 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 6,
   },
-
   sectionTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
   },
-
   sectionTopRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   sectionLabel: {
     fontSize: 13,
     fontFamily: 'Unbounded',
@@ -447,14 +449,12 @@ const styles = StyleSheet.create({
     color: '#0D1B2A',
     textTransform: 'uppercase',
   },
-
   sectionDescription: {
     fontSize: 12,
     fontFamily: 'Unbounded',
     color: '#111',
     marginBottom: 8,
   },
-
   valueBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -467,7 +467,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#E7ECEF',
   },
-
   // Кастомный прямоугольный Switch
   rectSwitch: {
     width: 56,
@@ -499,7 +498,6 @@ const styles = StyleSheet.create({
   rectSwitchThumbOn: {
     backgroundColor: '#ECF0F1',
   },
-
   // Кастомный прямоугольный Slider
   sliderContainer: {
     height: 32,
@@ -546,15 +544,48 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 6,
   },
-
   buttonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 8,
     marginTop: 4,
   },
-
   bottomButton: {
     flex: 1,
+  },
+  // ✅ Опасная зона
+  dangerZone: {
+    marginTop: 30,
+    padding: 16,
+    backgroundColor: 'rgba(196, 30, 58, 0.1)',
+    borderWidth: 3,
+    borderColor: '#c41e3a',
+    borderRadius: 12,
+  },
+  dangerZoneTitle: {
+    fontSize: 16,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#c41e3a',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  dangerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#c41e3a',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 10,
+  },
+  dangerButtonText: {
+    fontSize: 15,
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    color: '#E7ECEF',
   },
 });
