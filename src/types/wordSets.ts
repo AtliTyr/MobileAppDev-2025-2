@@ -155,7 +155,21 @@ export const builtInWordSets: WordSet[] = [
       { id: 's15', word: 'ПОРТФЕЛЬ', translation: 'backpack', description: 'Сумка для учебников' },
     ],
   },
-
+  {
+    id: 'dummy_ru',
+    name: 'ДЕБАГ',
+    description: 'ДЕБАГ',
+    emoji: '📚',
+    totalWords: 5,
+    language: 'ru',
+    words: [
+      { id: 's1', word: 'А', translation: 'lesson', description: 'Занятие по предмету' },
+      { id: 's2', word: 'Б', translation: 'class', description: 'Группа учеников' },
+      { id: 's3', word: 'В', translation: 'notebook', description: 'Для записей' },
+      { id: 's4', word: 'Г', translation: 'pen', description: 'Для письма' },
+      { id: 's5', word: 'Д', translation: 'pencil', description: 'Для рисования' },
+    ],
+  },
   // ========================================
   // 🇬🇧 АНГЛИЙСКИЕ НАБОРЫ
   // ========================================

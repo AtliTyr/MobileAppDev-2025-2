@@ -43,10 +43,13 @@ import {
 import WordCard from '../components/WordCard';
 import { DEFAULT_GAME_CONFIG } from '../types/game';
 import { TetrominoFactory } from '../utils/tetrominoFactory';
+import { removeLettersFromWord } from '../utils/boardUtils';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export type CelebrationType = 'tetris' | 'word' | 'level_up' | null;
+
+const RECOGNITION_COOLDOWN = 10;
 
 export default function GameScreen({ navigation, route }: Props) {
   // ========================================
@@ -67,9 +70,11 @@ export default function GameScreen({ navigation, route }: Props) {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [countdownTime, setCountdownTime] = useState<number | null>(null);
   const [isControlsDisabled, setIsControlsDisabled] = useState(false);
+
   const [recognitionModeActive, setRecognitionModeActive] = useState(false);
   const [recognitionTimer, setRecognitionTimer] = useState(120);
   const [selectedPath, setSelectedPath] = useState<LetterPosition[]>([]);
+  const [recognitionCooldown, setRecognitionCooldown] = useState(0);
 
 
   const [bestScore, setBestScore] = useState(0);
@@ -148,11 +153,6 @@ export default function GameScreen({ navigation, route }: Props) {
   const [celebrationType, setCelebrationType] = useState<CelebrationType>(null);  
   const [celebrationOpacity] = useState(new Animated.Value(1));
   const celebrationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-// Удалите эту строку:
-// const [emojiParticles, setEmojiParticles] = useState<EmojiParticle[]>([]);
-
-
 
   // ========================================
   // 📍 REFS
@@ -299,25 +299,23 @@ export default function GameScreen({ navigation, route }: Props) {
     actions.updateCurrentTetromino(newCurrentTetromino);
     actions.updateNextTetrominos(newNextTetrominos);
     
-  }, [currentWordSet, effectiveConfig.nextTetrominosCount, effectiveConfig.targetWord]);
+  }, [currentWordSet, effectiveConfig.nextTetrominosCount]);
 
   // ========================================
   // ⏱️ ТАЙМЕР ОБРАТНОГО ОТСЧЁТА
   // ========================================
   const startCountdown = useCallback(
     (duration: number = 3) => {
-      console.log(
-        `⏱️ Таймер начат на ${duration} сек, isControlsDisabled = true`
-      );
+      // если уже идёт отсчёт – второй не запускаем
+      if (countdownIntervalRef.current) {
+        return;
+      }
+
+      console.log(`⏱️ Таймер начат на ${duration} сек`);
       setCountdownTime(duration);
       setIsControlsDisabled(true);
 
       let remaining = duration;
-
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-        console.log('🗑️ Старый таймер очищен');
-      }
 
       countdownIntervalRef.current = setInterval(() => {
         remaining -= 1;
@@ -330,7 +328,7 @@ export default function GameScreen({ navigation, route }: Props) {
             countdownIntervalRef.current = null;
           }
 
-          console.log('✅ Таймер закончился, isControlsDisabled = false');
+          console.log('✅ Таймер закончился');
           setCountdownTime(null);
           setIsControlsDisabled(false);
           actions.resume();
@@ -388,20 +386,6 @@ export default function GameScreen({ navigation, route }: Props) {
   }, [isControlsDisabled, gameState.isPaused]);
 
   // ========================================
-  // 🚫 SWIPE BACK
-  // ========================================
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      if (e.data.action.type === 'GO_BACK') {
-        e.preventDefault();
-        handlePause();
-      }
-    });
-
-    return unsubscribe;
-  }, [navigation, gameState.isPaused, showPauseMenu, isControlsDisabled]);
-
-  // ========================================
   // 📱 ИНИЦИАЛИЗАЦИЯ
   // ========================================
   useEffect(() => {
@@ -413,11 +397,13 @@ export default function GameScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     if (!recognitionModeActive) return;
+    // ✅ НЕ ТИКАЕМ, ЕСЛИ ИГРА НА ПАУЗЕ (но режим распознавания уже ставит паузу автоматически)
+    // Этот таймер работает только пока recognitionModeActive === true
 
     const id = setInterval(() => {
       setRecognitionTimer((t) => {
         if (t <= 1) {
-          console.log('⏰ Recognition: время вышло');
+          console.log('⏰ Recognition mode timer expired');
           setRecognitionModeActive(false);
           actions.resume();
           playBackgroundMusic();
@@ -429,6 +415,26 @@ export default function GameScreen({ navigation, route }: Props) {
 
     return () => clearInterval(id);
   }, [recognitionModeActive, actions, playBackgroundMusic]);
+
+  // ⏱️ ТАЙМЕР КУЛДАУНА ДЛЯ РЕЖИМА РАСПОЗНАВАНИЯ
+  useEffect(() => {
+    if (recognitionCooldown <= 0) return;
+
+    const id = setInterval(() => {
+      // ✅ НЕ ТИКАЕМ, ЕСЛИ ИГРА НА ПАУЗЕ
+      if (gameState.isPaused) return;
+
+      setRecognitionCooldown((t) => {
+        if (t <= 1) {
+          console.log('✅ Кулдаун режима распознавания закончился');
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(id);
+  }, [recognitionCooldown, gameState.isPaused]);
 
   // ========================================
   // 👆 СВАЙПЫ
@@ -475,13 +481,26 @@ export default function GameScreen({ navigation, route }: Props) {
   // 🎮 ОБРАБОТЧИКИ
   // ========================================
   const handlePause = () => {
-    if (gameState.isPaused && showPauseMenu) {
+    if (gameState.isGameOver) return;
+
+    // Всегда гасим обратный отсчёт, если он был
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+      setCountdownTime(null);
+    }
+
+    if (gameState.isPaused) {
+      // Разпауза
       setShowPauseMenu(false);
+
+      // Не запускаем новый таймер, если только что открывали меню паузы поверх countdown
       startCountdown(3);
-      playBackgroundMusic();
     } else {
+      // Пауза
       actions.pause();
       setShowPauseMenu(true);
+      setIsControlsDisabled(true);
       stopBackgroundMusic();
     }
   };
@@ -592,11 +611,58 @@ export default function GameScreen({ navigation, route }: Props) {
   };
 
   // ========================================
+  // 🚫 SWIPE BACK
+  // ========================================
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (e.data.action.type === 'GO_BACK') {
+        e.preventDefault();
+
+        // ✅ ЕСЛИ ОТКРЫТ РЕЖИМ РАСПОЗНАВАНИЯ - закрываем его и открываем паузу
+        if (recognitionModeActive) {
+          setRecognitionModeActive(false);
+          actions.pause();
+          setShowPauseMenu(true);
+          setIsControlsDisabled(true);
+          stopBackgroundMusic();
+          console.log('🔍 Режим распознавания закрыт, открыто меню паузы');
+          return;
+        }
+
+        // Если идёт countdown – останавливаем его и открываем меню паузы
+        if (countdownTime != null) {
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+          }
+          setCountdownTime(null);
+          setIsControlsDisabled(true);
+          actions.pause();
+          setShowPauseMenu(true);
+          stopBackgroundMusic();
+          return;
+        }
+
+        // Иначе обычный toggle паузы
+        handlePause();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, recognitionModeActive, countdownTime, handlePause, actions, stopBackgroundMusic]);
+
+  // ========================================
   // ✨ РЕЖИМ РАЗГАДЫВАНИЯ + ПРОГРЕСС СЛОВ
   // ========================================
   const handleActivateRecognitionMode = () => {
     if (gameState.isGameOver || recognitionModeActive) return;
-    console.log('🔍 Активируем режим разгадывания');
+    
+    // Проверяем кулдаун
+    if (recognitionCooldown > 0) {
+      console.log('⏳ Режим распознавания на кулдауне:', recognitionCooldown, 'сек');
+      return;
+    }
+
+    console.log('🔍 Активируем режим распознавания');
     setRecognitionTimer(120);
     setRecognitionModeActive(true);
     actions.pause();
@@ -604,33 +670,29 @@ export default function GameScreen({ navigation, route }: Props) {
   };
 
   const handleRecognitionClose = async (word: string) => {
-    console.log('📝 Слово из режима разгадывания:', word);
+    console.log('🔍 Режим распознавания закрыт, слово:', word);
     setRecognitionModeActive(false);
-
+    
     const trimmed = word.trim();
     const upper = trimmed.toUpperCase();
-
+    
     let success = false;
     let unlockedWord: WordData | null = null;
 
-    if (
-      currentTargetWord &&
-      upper === currentTargetWord &&
-      currentWordSet &&
-      currentTargetId
-    ) {
+    if (currentTargetWord && upper === currentTargetWord && currentWordSet && currentTargetId) {
       success = true;
-      unlockedWord =
-        currentWordSet.words.find((w) => w.id === currentTargetId) ??
-        null;
-      console.log('🎯 Совпадение с целью!');
+      unlockedWord = currentWordSet.words.find((w) => w.id === currentTargetId) ?? null;
+      console.log('✅ Угадано правильное слово!');
     } else {
-      console.log(
-        '❌ Не совпало с целью. target =',
-        currentTargetWord,
-        'word =',
-        upper
-      );
+      console.log('❌ Неверное слово. target =', currentTargetWord, 'ввели =', word, 'upper =', upper);
+    }
+
+    // 🟢 СТАВИМ ПАУЗУ СРАЗУ ПРИ УСПЕХЕ - ДО ВСЕХ ASYNC ОПЕРАЦИЙ!
+    if (success) {
+      actions.pause();
+      setIsControlsDisabled(true);
+      stopBackgroundMusic();
+      console.log('⏸️ Игра на паузе (слово найдено)');
     }
 
     if (success && currentWordSet && currentTargetId) {
@@ -646,39 +708,37 @@ export default function GameScreen({ navigation, route }: Props) {
         if (!list.includes(currentTargetId)) {
           const updated = [...list, currentTargetId];
           parsed[currentWordSet.id] = updated;
-          await AsyncStorage.setItem(
-            STORAGE_FOUND_WORDS,
-            JSON.stringify(parsed)
-          );
+          await AsyncStorage.setItem(STORAGE_FOUND_WORDS, JSON.stringify(parsed));
           setFoundIds(updated);
-          console.log(
-            '💾 Слово добавлено в найденные:',
-            currentTargetId
-          );
+          console.log('💾 Слово сохранено, id:', currentTargetId);
         }
 
         triggerCelebration('word');
-
-        chooseNextTarget(currentWordSet, parsed[currentWordSet.id]);
+        chooseNextTarget(currentWordSet, parsed[currentWordSet.id] ?? []);
 
         if (unlockedWord) {
+          console.log('🗑️ Удаляем буквы слова с доски:', unlockedWord.word);
+          const newBoard = removeLettersFromWord(unlockedWord, gameState.board);
+          actions.setBoard(newBoard);
+          
           setJustFoundWord(unlockedWord);
           setJustFoundVisible(true);
+          console.log('📌 Карточка слова открыта');
         }
       } catch (e) {
         console.log('Ошибка сохранения найденного слова', e);
       }
     }
 
-    if (trimmed.length > 0) {
-      actions.addWord();
-      if (trimmed.length > 2) {
-        actions.addScore((trimmed.length - 2) * 50);
-      }
+    // Если НЕ успех — возобновляем
+    if (!success) {
+      actions.resume();
+      playBackgroundMusic();
     }
 
-    actions.resume();
-    playBackgroundMusic();
+    // ⏱️ ЗАПУСКАЕМ КУЛДАУН
+    setRecognitionCooldown(RECOGNITION_COOLDOWN);
+    console.log(`⏳ Запущен кулдаун: ${RECOGNITION_COOLDOWN} сек`);
   };
 
   // ========================================
@@ -805,19 +865,20 @@ export default function GameScreen({ navigation, route }: Props) {
           <View style={searchPanel.container}>
             <TouchableOpacity
               onPress={handleActivateRecognitionMode}
-              disabled={gameState.isGameOver}
-              style={[gameState.isGameOver ? gameArea.disabled : undefined, controls.button]}
+              disabled={gameState.isGameOver || recognitionCooldown > 0}
+              style={[
+                gameState.isGameOver || recognitionCooldown > 0 ? gameArea.disabled : undefined,
+                controls.button,
+              ]}
             >
-              <Text style={searchPanel.searchText}>🔍 СЛОВО</Text>
-              {recognitionModeActive && (
-                <Text
-                  style={[
-                    gameArea.sectionTitle,
-                    { fontSize: 28 },
-                  ]}
-                >
+              {recognitionModeActive ? (
+                <Text style={[gameArea.sectionTitle, { fontSize: 28 }]}>
                   {recognitionTimer}s
                 </Text>
+              ) : recognitionCooldown > 0 ? (
+                <Text style={searchPanel.searchText}>⏳ {recognitionCooldown}s</Text>
+              ) : (
+                <Text style={searchPanel.searchText}>🔍 СЛОВО</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -1154,6 +1215,9 @@ export default function GameScreen({ navigation, route }: Props) {
           onClose={() => {
             setJustFoundVisible(false);
             setJustFoundWord(null);
+            setIsControlsDisabled(false);   // разблокируем
+            actions.resume();               // продолжаем игру
+            playBackgroundMusic();          // вернуть музыку, если надо
           }}
         />
 
@@ -1488,6 +1552,7 @@ const pauseMenu = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1001,
   },
   cardShadow: {
     shadowColor: '#000',
