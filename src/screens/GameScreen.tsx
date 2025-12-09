@@ -42,7 +42,8 @@ import {
 
 import WordCard from '../components/WordCard';
 import { DEFAULT_GAME_CONFIG } from '../types/game';
- 
+import { TetrominoFactory } from '../utils/tetrominoFactory';
+
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export type CelebrationType = 'tetris' | 'word' | 'level_up' | null;
@@ -222,6 +223,13 @@ export default function GameScreen({ navigation, route }: Props) {
   };
 
   useEffect(() => {
+    if (currentWordSet && currentWordSet.language) {
+      console.log('🔄 Язык набора слов изменился, обновляем язык:', currentWordSet.language);
+      TetrominoFactory.setLanguage(currentWordSet.language);
+    }
+  }, [currentWordSet]);
+
+  useEffect(() => {
     const initWordSet = async () => {
       try {
         const fromRoute = routeWordSetId;
@@ -242,6 +250,10 @@ export default function GameScreen({ navigation, route }: Props) {
         }
 
         setCurrentWordSet(set);
+        
+        // ✅ ДОБАВИТЬ ДВЕ СТРОКИ:
+        console.log('🌍 Устанавливаем язык набора слов:', set.language);
+        TetrominoFactory.setLanguage(set.language);
 
         const raw = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
         const parsed: Record<string, string[]> = raw ? JSON.parse(raw) : {};
@@ -264,9 +276,30 @@ export default function GameScreen({ navigation, route }: Props) {
         console.log('Ошибка инициализации набора слов в GameScreen', e);
       }
     };
-
     initWordSet();
   }, [routeWordSetId, savedGameData]);
+
+  useEffect(() => {
+    if (!gameState || !currentWordSet) return;
+    
+    // Перегенерируем АКТИВНЫЙ
+    const newCurrentTetromino = TetrominoFactory.createRandom(undefined, {
+      targetWordLetters: effectiveConfig.targetWord?.split('') ?? undefined,
+    });
+    
+    // Перегенерируем СЛЕДУЮЩИЕ
+    const newNextTetrominos = TetrominoFactory.createMultiple(
+      effectiveConfig.nextTetrominosCount,
+      {
+        targetWordLetters: effectiveConfig.targetWord?.split('') ?? undefined,
+      }
+    );
+    
+    // Обновляем оба!
+    actions.updateCurrentTetromino(newCurrentTetromino);
+    actions.updateNextTetrominos(newNextTetrominos);
+    
+  }, [currentWordSet, effectiveConfig.nextTetrominosCount, effectiveConfig.targetWord]);
 
   // ========================================
   // ⏱️ ТАЙМЕР ОБРАТНОГО ОТСЧЁТА

@@ -500,6 +500,28 @@ export const useGameState = (
     setGameState((prev) => ({ ...prev, nextTetrominos: tetrominos }));
   }, []);
 
+  const updateCurrentTetromino = useCallback(
+    (newCurrentTetromino: Tetromino) => {
+      setGameState((prev) => ({
+        ...prev,
+        currentTetromino: newCurrentTetromino,
+      }));
+    },
+    []
+  );
+
+  // 🆕 НОВЫЙ ACTION: обновить очередь тетромино при смене языка
+  const updateNextTetrominos = useCallback(
+    (newNextTetrominos: Tetromino[]) => {
+      console.log('🎮 updateNextTetrominos:', newNextTetrominos.length, 'тетромино');
+      setGameState((prev) => ({
+        ...prev,
+        nextTetrominos: newNextTetrominos,
+      }));
+    },
+    []
+  );
+
   const setBoard = useCallback((board: GameState['board']) => {
     setGameState((prev) => ({ ...prev, board }));
   }, []);
@@ -538,6 +560,8 @@ export const useGameState = (
       levelUp,
       setCurrentTetromino,
       setNextTetrominos,
+      updateCurrentTetromino,
+      updateNextTetrominos,
       setBoard,
       setGameOver,
       setCanHold,
