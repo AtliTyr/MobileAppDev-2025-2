@@ -18,6 +18,15 @@ import {
   STORAGE_SELECTED_SET_ID,
 } from '../types/wordSets';
 
+import { 
+  getDailyWord, 
+  updateDailyWord, 
+  markDailyWordFound, 
+  getNextUpdateTime, 
+  type DailyWord,
+  forceNewDailyWord, 
+} from '../utils/dailyWordStorage';
+
 // ========================================
 // 📊 ТИПЫ
 // ========================================
@@ -45,6 +54,60 @@ export default function HomeScreen({ navigation }: Props) {
   // ✨ Новое: текущий набор для игры (может быть random)
   const [currentSet, setCurrentSet] = useState<WordSet | null>(null);
 
+  const [dailyWord, setDailyWord] = useState<DailyWord | null>(null);
+  const [loadingDaily, setLoadingDaily] = useState(true); 
+  const [nextUpdateTime, setNextUpdateTime] = useState<string>('');
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadDailyWord = async () => {
+        try {
+          setLoadingDaily(true);
+          const daily = await updateDailyWord(); // Автоматически обновляет если прошло 24 часа
+          setDailyWord(daily);
+        } catch (e) {
+          console.error('Error loading daily word:', e);
+          setDailyWord(null);
+        } finally {
+          setLoadingDaily(false);
+        }
+      };
+
+      loadDailyWord();
+    }, [])
+  );
+
+  useEffect(() => {
+    if (!dailyWord) {
+      setNextUpdateTime('');
+      return;
+    }
+
+    // Обновляем время при загрузке
+    setNextUpdateTime(getNextUpdateTime());
+
+    // Обновляем каждую секунду
+    const interval = setInterval(() => {
+      setNextUpdateTime(getNextUpdateTime());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [dailyWord]);
+
+  // Обработчик для "Играть" с словом дня
+  const handlePlayDailyWord = async () => {
+    if (dailyWord) {
+      navigation.navigate('Game', {
+        wordSetId: dailyWord.setId,
+        dailyWordId: dailyWord.wordId,
+        isDailyWordMode: true,
+      });
+    }
+  };
+  const handleForceDailyWord = async () => {
+    const forced = await forceNewDailyWord();
+    setDailyWord(forced);
+  };
   // ========================================
   // ⚡ ПРОВЕРКА СОХРАНЁННОЙ ИГРЫ
   // ========================================
@@ -193,6 +256,47 @@ export default function HomeScreen({ navigation }: Props) {
 
         {/* Основные кнопки */}
         <View style={styles.innerContainer}>
+          {!loadingDaily && dailyWord && (
+            <View style={styles.dailyWordSection}>
+              <View style={styles.dailyWordCard}>
+                {/* Заголовок */}
+                <View style={styles.dailyWordHeader}>
+                  <Text style={styles.dailyWordLabel}>📅 Word of the Day</Text>
+                  <Text style={styles.dailyWordDate}>
+                    Update: {nextUpdateTime}
+                  </Text>
+                </View>
+
+                {/* Слово */}
+                <View style={styles.dailyWordContent}>
+                  <Text style={styles.dailyWordWord}>{dailyWord.word}</Text>
+                </View>
+
+                {/* Кнопка */}
+                {dailyWord.found ? (
+                  <View style={styles.dailyWordFoundBadge}>
+                    <Text style={styles.dailyWordFoundText}>✅ Found Today!</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.dailyWordPlayButton}
+                    onPress={handlePlayDailyWord}
+                  >
+                    <Text style={styles.dailyWordPlayButtonText}>Play & Find It</Text>
+                  </TouchableOpacity>
+                )}
+
+                  <TouchableOpacity
+                    style={[styles.dailyWordPlayButton, { marginTop: 8 }]}
+                    onPress={handleForceDailyWord}
+                  >
+                    <Text style={styles.dailyWordPlayButtonText}>🐞 New daily word</Text>
+                  </TouchableOpacity>
+              </View>
+
+            </View>
+          )}
+
           <View style={styles.buttonsPanel}>
             {savedGameExists && (
               <PrimaryButton
@@ -358,6 +462,99 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     // borderWidth: 2,
     // borderColor: 'rgba(13, 27, 42, 0.7)',
+  },
+
+  
+  
+  dailyWordSection: {
+    marginBottom: 24,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+
+  dailyWordCard: {
+    backgroundColor: '#FF9800',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    transform: [{ rotate: '-2deg' }],
+  },
+
+  dailyWordHeader: {
+    marginBottom: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'rgba(255, 255, 255, 0.3)',
+    paddingBottom: 8,
+  },
+
+  dailyWordLabel: {
+    fontSize: 13,
+    fontFamily: 'Unbounded',
+    fontWeight: '700',
+    color: '#FFF',
+    marginBottom: 4,
+  },
+
+  dailyWordDate: {
+    fontSize: 10,
+    fontFamily: 'Unbounded',
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+
+  dailyWordContent: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  dailyWordWord: {
+    fontSize: 36,
+    fontFamily: 'Unbounded',
+    fontWeight: '900',
+    color: '#FFF',
+    marginBottom: 6,
+  },
+
+  dailyWordTranslation: {
+    fontSize: 13,
+    fontFamily: 'Unbounded',
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontStyle: 'italic',
+  },
+
+  dailyWordPlayButton: {
+    backgroundColor: '#0D1B2A',
+    borderWidth: 2,
+    borderColor: '#0D1B2A',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  dailyWordPlayButtonText: {
+    fontSize: 14,
+    fontFamily: 'Unbounded',
+    fontWeight: '700',
+    color: '#FF9800',
+  },
+
+  dailyWordFoundBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 2,
+    borderColor: '#FFF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  dailyWordFoundText: {
+    fontSize: 14,
+    fontFamily: 'Unbounded',
+    fontWeight: '700',
+    color: '#FFF',
   },
 });
 

@@ -44,6 +44,7 @@ import WordCard from '../components/WordCard';
 import { DEFAULT_GAME_CONFIG } from '../types/game';
 import { TetrominoFactory } from '../utils/tetrominoFactory';
 import { removeLettersFromWord } from '../utils/boardUtils';
+import { markDailyWordFound } from '../utils/dailyWordStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
@@ -154,6 +155,25 @@ export default function GameScreen({ navigation, route }: Props) {
   const [celebrationOpacity] = useState(new Animated.Value(1));
   const celebrationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const isDailyWordMode = route.params?.isDailyWordMode ?? false;
+  const dailyWordId = route.params?.dailyWordId;
+
+  useEffect(() => {
+    if (isDailyWordMode && dailyWordId && currentWordSet) {
+      const dailyWord = currentWordSet.words.find((w) => w.id === dailyWordId);
+      if (dailyWord) {
+        setCurrentTargetWord(dailyWord.word.toUpperCase());
+        setCurrentTargetId(dailyWordId);
+        console.log('🎯 Daily Word Mode:', dailyWord.word);
+        return;
+      }
+    }
+
+    if (currentWordSet && !isDailyWordMode) {
+      chooseNextTarget(currentWordSet, foundIds);
+    }
+  }, [currentWordSet, isDailyWordMode, dailyWordId]);
+
   // ========================================
   // 📍 REFS
   // ========================================
@@ -232,6 +252,14 @@ export default function GameScreen({ navigation, route }: Props) {
   useEffect(() => {
     const initWordSet = async () => {
       try {
+        // 🔥 КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Если daily mode - НЕ загружаем набор
+        if (isDailyWordMode) {
+          console.log('📅 Daily Word Mode активирован - пропускаем загрузку набора');
+          setCurrentWordSet(null); // явно никакого набора не будет
+          return;
+        }
+
+        // Обычная логика для non-daily режима
         const fromRoute = routeWordSetId;
         const fromSave = savedGameData?.wordSetId;
         const setId = fromRoute ?? fromSave;
@@ -243,6 +271,7 @@ export default function GameScreen({ navigation, route }: Props) {
         }
 
         const set = builtInWordSets.find((s) => s.id === setId);
+
         if (!set) {
           console.log('⚠️ Набор не найден по id:', setId);
           setCurrentWordSet(null);
@@ -250,8 +279,6 @@ export default function GameScreen({ navigation, route }: Props) {
         }
 
         setCurrentWordSet(set);
-        
-        // ✅ ДОБАВИТЬ ДВЕ СТРОКИ:
         console.log('🌍 Устанавливаем язык набора слов:', set.language);
         TetrominoFactory.setLanguage(set.language);
 
@@ -276,8 +303,47 @@ export default function GameScreen({ navigation, route }: Props) {
         console.log('Ошибка инициализации набора слов в GameScreen', e);
       }
     };
+
     initWordSet();
-  }, [routeWordSetId, savedGameData]);
+  }, [routeWordSetId, savedGameData, isDailyWordMode]);
+
+  // 🆕 Инициализация Daily Word Mode
+  useEffect(() => {
+    if (!isDailyWordMode || !dailyWordId) return;
+
+    const initDailyWord = async () => {
+      try {
+        // Находим набор по setId из параметров
+        const dailySetId = route.params?.wordSetId;
+        if (!dailySetId) {
+          console.log('⚠️ Daily mode: setId не передан');
+          return;
+        }
+
+        const set = builtInWordSets.find((s) => s.id === dailySetId);
+        if (!set) {
+          console.log('⚠️ Daily mode: Набор не найден по id:', dailySetId);
+          return;
+        }
+
+        // Устанавливаем язык
+        console.log('🌍 Daily mode: устанавливаем язык:', set.language);
+        TetrominoFactory.setLanguage(set.language);
+
+        // Находим целевое слово дня
+        const dailyWord = set.words.find((w) => w.id === dailyWordId);
+        if (dailyWord) {
+          setCurrentTargetWord(dailyWord.word.toUpperCase());
+          setCurrentTargetId(dailyWordId);
+          console.log('🎯 Daily Word Mode - целевое слово:', dailyWord.word);
+        }
+      } catch (e) {
+        console.error('Error initializing daily word:', e);
+      }
+    };
+
+    initDailyWord();
+  }, [isDailyWordMode, dailyWordId, route.params?.wordSetId]);
 
   useEffect(() => {
     if (!gameState || !currentWordSet) return;
@@ -672,71 +738,124 @@ export default function GameScreen({ navigation, route }: Props) {
   const handleRecognitionClose = async (word: string) => {
     console.log('🔍 Режим распознавания закрыт, слово:', word);
     setRecognitionModeActive(false);
-    
+
     const trimmed = word.trim();
     const upper = trimmed.toUpperCase();
-    
+
     let success = false;
     let unlockedWord: WordData | null = null;
 
-    if (currentTargetWord && upper === currentTargetWord && currentWordSet && currentTargetId) {
+    // Проверяем только совпадение с текущей целью и наличие id
+    if (currentTargetWord && upper === currentTargetWord && currentTargetId) {
       success = true;
-      unlockedWord = currentWordSet.words.find((w) => w.id === currentTargetId) ?? null;
-      console.log('✅ Угадано правильное слово!');
-    } else {
-      console.log('❌ Неверное слово. target =', currentTargetWord, 'ввели =', word, 'upper =', upper);
-    }
 
-    // 🟢 СТАВИМ ПАУЗУ СРАЗУ ПРИ УСПЕХЕ - ДО ВСЕХ ASYNC ОПЕРАЦИЙ!
-    if (success) {
-      actions.pause();
-      setIsControlsDisabled(true);
-      stopBackgroundMusic();
-      console.log('⏸️ Игра на паузе (слово найдено)');
-    }
+      if (isDailyWordMode) {
+        // DAILY MODE
+        console.log('✅ Угадано слово дня!');
+        try {
+          await markDailyWordFound();
+        } catch (e) {
+          console.error('Error marking daily word found:', e);
+        }
 
-    if (success && currentWordSet && currentTargetId) {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
-        const parsed: Record<string, string[]> = raw ? JSON.parse(raw) : {};
-        const list = parsed[currentWordSet.id] ?? [];
+        // Минимальная карточка для daily-слова
+        const fakeWord: WordData = {
+          id: currentTargetId,
+          word: currentTargetWord,
+          translation: '',
+          definition: '',
+          example: '',
+          setId: route.params?.wordSetId ?? '',
+        } as any;
+
+        setJustFoundWord(fakeWord);
+        setJustFoundVisible(true);
 
         if (boardRef.current) {
           boardRef.current.celebrate();
         }
-
-        if (!list.includes(currentTargetId)) {
-          const updated = [...list, currentTargetId];
-          parsed[currentWordSet.id] = updated;
-          await AsyncStorage.setItem(STORAGE_FOUND_WORDS, JSON.stringify(parsed));
-          setFoundIds(updated);
-          console.log('💾 Слово сохранено, id:', currentTargetId);
-        }
-
         triggerCelebration('word');
-        chooseNextTarget(currentWordSet, parsed[currentWordSet.id] ?? []);
 
-        if (unlockedWord) {
-          console.log('🗑️ Удаляем буквы слова с доски:', unlockedWord.word);
-          const newBoard = removeLettersFromWord(unlockedWord, gameState.board);
-          actions.setBoard(newBoard);
-          
-          setJustFoundWord(unlockedWord);
-          setJustFoundVisible(true);
-          console.log('📌 Карточка слова открыта');
-        }
-      } catch (e) {
-        console.log('Ошибка сохранения найденного слова', e);
+        // Сбрасываем цель, чтобы она пропала из UI
+        setCurrentTargetWord(null);
+        setCurrentTargetId(null);
+
+        // Разблокируем управление — продолжение игры после закрытия карточки
+        setIsControlsDisabled(false);
+        actions.resume();
+        playBackgroundMusic();
+
+        return; // Критично: не проваливаемся в обычную логику ниже
       }
+
+      // Обычный режим (через набор слов)
+      if (currentWordSet) {
+        unlockedWord =
+          currentWordSet.words.find((w) => w.id === currentTargetId) ?? null;
+        console.log('✅ Угадано правильное слово из набора!');
+      }
+    } else {
+      console.log(
+        '❌ Неверное слово. target =',
+        currentTargetWord,
+        'ввели =',
+        word,
+        'upper =',
+        upper
+      );
     }
 
-    // Если НЕ успех — возобновляем
-    if (!success) {
-      actions.resume();
-      playBackgroundMusic();
+    if (success) {
+      // Общая часть для обычного (не daily) режима
+      actions.pause();
+      setIsControlsDisabled(true);
+      stopBackgroundMusic();
+
+      console.log('⏸️ Игра на паузе (слово найдено)');
+
+      if (currentWordSet && currentTargetId) {
+        try {
+          const raw = await AsyncStorage.getItem(STORAGE_FOUND_WORDS);
+          const parsed: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+          const list = parsed[currentWordSet.id] ?? [];
+
+          if (boardRef.current) {
+            boardRef.current.celebrate();
+          }
+
+          if (!list.includes(currentTargetId)) {
+            const updated = [...list, currentTargetId];
+            parsed[currentWordSet.id] = updated;
+            await AsyncStorage.setItem(
+              STORAGE_FOUND_WORDS,
+              JSON.stringify(parsed)
+            );
+            setFoundIds(updated);
+            console.log('💾 Слово сохранено, id:', currentTargetId);
+          }
+
+          triggerCelebration('word');
+          chooseNextTarget(currentWordSet, parsed[currentWordSet.id] ?? []);
+
+          if (unlockedWord) {
+            console.log('🗑️ Удаляем буквы слова с доски:', unlockedWord.word);
+            const newBoard = removeLettersFromWord(unlockedWord, gameState.board);
+            actions.setBoard(newBoard);
+            setJustFoundWord(unlockedWord);
+            setJustFoundVisible(true);
+            console.log('📌 Карточка слова открыта');
+          }
+        } catch (e) {
+          console.log('Ошибка сохранения найденного слова', e);
+        }
+      }
+
+      return;
     }
 
-    // ⏱️ ЗАПУСКАЕМ КУЛДАУН
+    // Если не угадали
+    actions.resume();
+    playBackgroundMusic();
     setRecognitionCooldown(RECOGNITION_COOLDOWN);
     console.log(`⏳ Запущен кулдаун: ${RECOGNITION_COOLDOWN} сек`);
   };

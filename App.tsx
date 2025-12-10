@@ -13,7 +13,7 @@ import { GameState, GameConfig } from './src/types/game';
 export type RootStackParamList = {
   Home: undefined;
   Game:
-    | {
+    | { 
         savedGameData?: {
           gameState: GameState;
           config: GameConfig;
@@ -22,6 +22,8 @@ export type RootStackParamList = {
           currentTargetId?: string | null;
         };
         wordSetId?: string;
+        dailyWordId?: string;
+        isDailyWordMode?: boolean;
       }
     | undefined;
   Instructions: undefined;
