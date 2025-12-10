@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { builtInWordSets } from '../types/wordSets';
+import { builtInWordSets, WordData } from '../types/wordSets';
 
 const DAILY_WORD_KEY = 'DAILY_WORD';
 const DAILY_WORD_DATE_KEY = 'DAILY_WORD_DATE';
@@ -137,6 +137,23 @@ export const forceNewDailyWord = async (): Promise<DailyWord | null> => {
     return dailyWord;
   } catch (e) {
     console.error('Error forcing daily word:', e);
+    return null;
+  }
+};
+
+export const getDailyWordAsWordData = async (): Promise<WordData | null> => {
+  try {
+    const stored = await AsyncStorage.getItem(DAILY_WORD_KEY);
+    if (!stored) return null;
+
+    const daily: DailyWord = JSON.parse(stored);
+    const set = builtInWordSets.find(s => s.id === daily.setId);
+    if (!set) return null;
+
+    const word = set.words.find(w => w.id === daily.wordId);
+    return word ?? null;
+  } catch (e) {
+    console.error('Error converting daily word to WordData:', e);
     return null;
   }
 };

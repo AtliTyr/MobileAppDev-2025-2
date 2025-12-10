@@ -44,7 +44,7 @@ import WordCard from '../components/WordCard';
 import { DEFAULT_GAME_CONFIG } from '../types/game';
 import { TetrominoFactory } from '../utils/tetrominoFactory';
 import { removeLettersFromWord } from '../utils/boardUtils';
-import { markDailyWordFound } from '../utils/dailyWordStorage';
+import { markDailyWordFound, getDailyWordAsWordData } from '../utils/dailyWordStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
@@ -346,26 +346,23 @@ export default function GameScreen({ navigation, route }: Props) {
   }, [isDailyWordMode, dailyWordId, route.params?.wordSetId]);
 
   useEffect(() => {
-    if (!gameState || !currentWordSet) return;
-    
-    // Перегенерируем АКТИВНЫЙ
+    if (!gameState) return;
+    if (!currentTargetWord) return; // нет цели — не перегенерируем
+
+    const targetLetters = currentTargetWord.split('');
+
     const newCurrentTetromino = TetrominoFactory.createRandom(undefined, {
-      targetWordLetters: effectiveConfig.targetWord?.split('') ?? undefined,
+      targetWordLetters: targetLetters,
     });
-    
-    // Перегенерируем СЛЕДУЮЩИЕ
+
     const newNextTetrominos = TetrominoFactory.createMultiple(
       effectiveConfig.nextTetrominosCount,
-      {
-        targetWordLetters: effectiveConfig.targetWord?.split('') ?? undefined,
-      }
+      { targetWordLetters: targetLetters }
     );
-    
-    // Обновляем оба!
+
     actions.updateCurrentTetromino(newCurrentTetromino);
     actions.updateNextTetrominos(newNextTetrominos);
-    
-  }, [currentWordSet, effectiveConfig.nextTetrominosCount]);
+  }, [currentTargetWord, effectiveConfig.nextTetrominosCount]);
 
   // ========================================
   // ⏱️ ТАЙМЕР ОБРАТНОГО ОТСЧЁТА
@@ -758,17 +755,22 @@ export default function GameScreen({ navigation, route }: Props) {
           console.error('Error marking daily word found:', e);
         }
 
-        // Минимальная карточка для daily-слова
-        const fakeWord: WordData = {
-          id: currentTargetId,
-          word: currentTargetWord,
-          translation: '',
-          definition: '',
-          example: '',
-          setId: route.params?.wordSetId ?? '',
-        } as any;
+        // Берём полное описание слова дня из стораджа
+        let fullWord = await getDailyWordAsWordData();
 
-        setJustFoundWord(fakeWord);
+        if (!fullWord) {
+          // Fallback, если вдруг не нашли (подстраховка)
+          fullWord = {
+            id: currentTargetId,
+            word: currentTargetWord,
+            translation: '',
+            definition: '',
+            example: '',
+            setId: route.params?.wordSetId ?? '',
+          } as any;
+        }
+
+        setJustFoundWord(fullWord);
         setJustFoundVisible(true);
 
         if (boardRef.current) {
@@ -776,16 +778,13 @@ export default function GameScreen({ navigation, route }: Props) {
         }
         triggerCelebration('word');
 
-        // Сбрасываем цель, чтобы она пропала из UI
+        // Сбрасываем цель, чтобы пропала из UI
         setCurrentTargetWord(null);
         setCurrentTargetId(null);
 
-        // Разблокируем управление — продолжение игры после закрытия карточки
-        setIsControlsDisabled(false);
-        actions.resume();
-        playBackgroundMusic();
-
-        return; // Критично: не проваливаемся в обычную логику ниже
+        // ВАЖНО: не делаем здесь resume/playBackgroundMusic —
+        // это уже делает onClose у WordCard
+        return;
       }
 
       // Обычный режим (через набор слов)
@@ -806,11 +805,10 @@ export default function GameScreen({ navigation, route }: Props) {
     }
 
     if (success) {
-      // Общая часть для обычного (не daily) режима
+      // Обычный (не daily) режим — как было
       actions.pause();
       setIsControlsDisabled(true);
       stopBackgroundMusic();
-
       console.log('⏸️ Игра на паузе (слово найдено)');
 
       if (currentWordSet && currentTargetId) {
@@ -1329,17 +1327,19 @@ export default function GameScreen({ navigation, route }: Props) {
         </Modal>
 
         {/* Карточка только что найденного слова */}
-        <WordCard
-          visible={justFoundVisible}
-          word={justFoundWord}
-          onClose={() => {
-            setJustFoundVisible(false);
-            setJustFoundWord(null);
-            setIsControlsDisabled(false);   // разблокируем
-            actions.resume();               // продолжаем игру
-            playBackgroundMusic();          // вернуть музыку, если надо
-          }}
-        />
+        {justFoundWord && justFoundVisible && (
+          <WordCard
+            word={justFoundWord}
+            visible={justFoundVisible}
+            onClose={() => {
+              setJustFoundVisible(false);
+              setJustFoundWord(null);
+              setIsControlsDisabled(false);
+              actions.resume();
+              playBackgroundMusic();
+            }}
+          />
+        )}
 
         {/* Режим разгадывания */}
         <RecognitionModeOverlay
