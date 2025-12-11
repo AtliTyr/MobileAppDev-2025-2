@@ -6,26 +6,21 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ImageBackground } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+
 import PrimaryButton from '../components/PrimaryButton';
 import { useGamePersistence } from '../hooks/useGamePersistence';
 import { RootStackParamList } from '../../App';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import {
   WordSet,
   builtInWordSets,
   STORAGE_SELECTED_SET_ID,
 } from '../types/wordSets';
 
-import { 
-  getDailyWord, 
-  updateDailyWord, 
-  markDailyWordFound, 
-  getNextUpdateTime, 
-  type DailyWord,
-  forceNewDailyWord, 
-} from '../utils/dailyWordStorage';
+import { useDailyNotifications } from '../hooks/useDailyNotifications';
+import { useDailyWordManager } from '../hooks/useDailyWordManager';
 
 // ========================================
 // 📊 ТИПЫ
@@ -38,64 +33,79 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 // ========================================
 
 export default function HomeScreen({ navigation }: Props) {
-  // ========================================
   // 🪝 HOOKS
-  // ========================================
-
+  useDailyNotifications();
   const { hasSavedGame, clearSavedGame, loadGame } = useGamePersistence();
+  
+  // Используем упрощенный менеджер слова дня
+  const {
+    dailyWord,
+    nextUpdateTime,
+    loading,
+    forceUpdateDailyWord,
+  } = useDailyWordManager(); // Убрали refreshDailyWord из использования
 
-  // ========================================
   // 📦 СОСТОЯНИЕ
-  // ========================================
-
   const [savedGameExists, setSavedGameExists] = useState(false);
   const [showNewGameConfirm, setShowNewGameConfirm] = useState(false);
-
-  // ✨ Новое: текущий набор для игры (может быть random)
   const [currentSet, setCurrentSet] = useState<WordSet | null>(null);
 
-  const [dailyWord, setDailyWord] = useState<DailyWord | null>(null);
-  const [loadingDaily, setLoadingDaily] = useState(true); 
-  const [nextUpdateTime, setNextUpdateTime] = useState<string>('');
-
+  // Загрузка сохраненной игры и текущего набора
   useFocusEffect(
     React.useCallback(() => {
-      const loadDailyWord = async () => {
+      const checkSaveAndSet = async () => {
+        const exists = await hasSavedGame();
+        setSavedGameExists(exists);
         try {
-          setLoadingDaily(true);
-          const daily = await updateDailyWord(); // Автоматически обновляет если прошло 24 часа
-          setDailyWord(daily);
+          const storedId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
+          if (storedId) {
+            const set = builtInWordSets.find(s => s.id === storedId) ?? null;
+            setCurrentSet(set);
+          } else {
+            setCurrentSet(null);
+          }
         } catch (e) {
-          console.error('Error loading daily word:', e);
-          setDailyWord(null);
-        } finally {
-          setLoadingDaily(false);
+          console.log('HomeScreen:', e);
         }
       };
-
-      loadDailyWord();
-    }, [])
+      checkSaveAndSet();
+    }, [hasSavedGame])
   );
 
+  // Блокировка свайпа назад
   useEffect(() => {
-    if (!dailyWord) {
-      setNextUpdateTime('');
-      return;
-    }
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (e.data.action.type === 'GO_BACK') {
+        e.preventDefault();
+        console.log('🚫 Swipe back заблокирован');
+      }
+    });
+    return unsubscribe;
+  }, [navigation]);
 
-    // Обновляем время при загрузке
-    setNextUpdateTime(getNextUpdateTime());
+  // Загрузка текущего набора
+  useEffect(() => {
+    const loadCurrentSet = async () => {
+      try {
+        const storedId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
+        let set: WordSet | undefined;
+        if (storedId) {
+          set = builtInWordSets.find(s => s.id === storedId);
+        }
+        if (!set) {
+          const all = builtInWordSets;
+          set = all[Math.floor(Math.random() * all.length)];
+        }
+        setCurrentSet(set || null);
+      } catch (e) {
+        console.log('HomeScreen:', e);
+      }
+    };
+    loadCurrentSet();
+  }, []);
 
-    // Обновляем каждую секунду
-    const interval = setInterval(() => {
-      setNextUpdateTime(getNextUpdateTime());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [dailyWord]);
-
-  // Обработчик для "Играть" с словом дня
-  const handlePlayDailyWord = async () => {
+  // 📱 ОБРАБОТЧИКИ
+  const handlePlayDailyWord = () => {
     if (dailyWord) {
       navigation.navigate('Game', {
         wordSetId: dailyWord.setId,
@@ -104,99 +114,16 @@ export default function HomeScreen({ navigation }: Props) {
       });
     }
   };
+
   const handleForceDailyWord = async () => {
-    const forced = await forceNewDailyWord();
-    setDailyWord(forced);
+    await forceUpdateDailyWord();
   };
-  // ========================================
-  // ⚡ ПРОВЕРКА СОХРАНЁННОЙ ИГРЫ
-  // ========================================
-
-  useFocusEffect(
-    React.useCallback(() => {
-      const checkSaveAndSet = async () => {
-        const exists = await hasSavedGame();
-        setSavedGameExists(exists);
-
-        // 👇 добавляем загрузку выбранного набора при КАЖДОМ фокусе
-        try {
-          const storedId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
-          if (storedId) {
-            const set = builtInWordSets.find(s => s.id === storedId) ?? null;
-            setCurrentSet(set);
-          } else {
-            setCurrentSet(null); // будет показывать "случайный набор"
-          }
-        } catch (e) {
-          console.log('Ошибка загрузки набора на HomeScreen', e);
-        }
-      };
-
-      checkSaveAndSet();
-    }, [hasSavedGame])
-  );
-
-  // ========================================
-  // 🚫 БЛОКИРОВКА SWIPE BACK (КРИТИЧНО!)
-  // ========================================
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      if (e.data.action.type === 'GO_BACK') {
-        e.preventDefault();
-        console.log('🚫 Swipe back заблокирован на главном меню');
-      }
-    });
-
-    return unsubscribe;
-  }, [navigation]);
-
-  // ========================================
-  // 🔤 ЗАГРУЗКА / УСТАНОВКА НАБОРА
-  // ========================================
-
-  // При заходе на Home: читаем выбранный набор из AsyncStorage или берём случайный.
-  useEffect(() => {
-    const loadCurrentSet = async () => {
-      try {
-        const storedId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
-        let set: WordSet | undefined;
-
-        if (storedId) {
-          set = builtInWordSets.find(s => s.id === storedId);
-        }
-        if (!set) {
-          const all = builtInWordSets;
-          set = all[Math.floor(Math.random() * all.length)];
-          // Для наглядности: НЕ сохраняем рандом в STORAGE_SELECTED_SET_ID,
-          // чтобы пользователь явно выбрал набор в словаре.
-        }
-        setCurrentSet(set || null);
-      } catch (e) {
-        console.log('Ошибка загрузки набора на HomeScreen', e);
-      }
-    };
-
-    loadCurrentSet();
-  }, []);
-
-  // Этот обработчик можно будет вызывать из других экранов, если решишь
-  // делать выбор набора прямо из Home. Пока он только читает состояние.
-  const getSetLabel = () => {
-    if (!currentSet) return 'Набор: случайный';
-    return `Набор: ${currentSet.name}`;
-  };
-
-  // ========================================
-  // 🎮 ОБРАБОТЧИКИ НАЖАТИЙ
-  // ========================================
 
   const handleNewGame = () => {
     if (savedGameExists) {
       setShowNewGameConfirm(true);
     } else {
       navigation.navigate('Game', {
-        // Явно прокидываем текущий набор; если он рандомный — это всё равно конкретный id
         wordSetId: currentSet ? currentSet.id : undefined,
       });
     }
@@ -213,7 +140,6 @@ export default function HomeScreen({ navigation }: Props) {
   const handleContinueGame = async () => {
     const loadedData = await loadGame();
     if (loadedData) {
-      // В сохранении уже есть конфиг и состояние, включая набор:
       navigation.navigate('Game', { savedGameData: loadedData });
     }
   };
@@ -230,73 +156,96 @@ export default function HomeScreen({ navigation }: Props) {
     >
       <View style={styles.container}>
         {/* Верхняя панель с набором и шестерёнкой */}
-        <View style={styles.topBar}>
-          <View style={styles.setCard}>
-            <Text style={styles.setLabel}>ТЕКУЩИЙ НАБОР</Text>
-            <Text
-              style={styles.setName}
-              numberOfLines={1}
-              ellipsizeMode="tail"
+        <View style={styles.topPanel}>
+          <View style={styles.topBar}>
+            <View style={styles.setCard}>
+              <Text style={styles.setLabel}>ТЕКУЩИЙ НАБОР</Text>
+              <Text
+                style={styles.setName}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {currentSet ? currentSet.name : 'Случайный'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.settingsButton}
+              onPress={() => navigation.navigate('Settings')}
             >
-              {currentSet ? currentSet.name : 'Случайный'}
-            </Text>
+              <MaterialCommunityIcons
+                name="cog-outline"
+                size={28}
+                color="#0D1B2A"
+              />
+            </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={() => navigation.navigate('Settings')}
-          >
-            <MaterialCommunityIcons
-              name="cog-outline"
-              size={28}
-              color="#0D1B2A"
-            />
-          </TouchableOpacity>
+          {!loading && dailyWord && (
+            <>
+              {!!nextUpdateTime && (
+                <View style={styles.dailyWordTimerBox}>
+                  <View style={styles.dailyWordTimerValueWrapper}>
+                    <MaterialCommunityIcons
+                      name="clock-outline"
+                      size={16}
+                      color="#0D1B2A"
+                    />
+                    <Text style={styles.dailyWordTimerValue}>{nextUpdateTime}</Text>
+                  </View>
+                </View>
+              )}
+
+              <View style={styles.dailyWordRow}>
+                {/* Левая часть: label + value, как в наборе */}
+                <View style={styles.dailyWordBox}>
+                  <Text style={styles.dailyWordLabel}>СЛОВО ДНЯ</Text>
+                  <View style={styles.dailyWordValueWrapper}>
+                    <Text style={styles.dailyWordValue}>
+                      {dailyWord.word.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Правая часть: либо кнопка, либо галочка */}
+                {dailyWord.found ? (
+                  <View style={styles.dailyWordStatusFound}>
+                    <MaterialCommunityIcons
+                      name="check-bold"
+                      size={40}
+                      color="green"
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={handlePlayDailyWord}
+                    style={styles.dailyWordStatusFound}
+                  >
+                    <MaterialCommunityIcons
+                      name="play-circle-outline"
+                      size={40}
+                      color="#0D1B2A"
+                    />
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={styles.dailyWordStatusFound}
+                  onPress={handleForceDailyWord}
+                >
+                  <MaterialCommunityIcons
+                    name="reload"
+                    size={40}
+                    color="#0D1B2A"
+                  />
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
 
         {/* Основные кнопки */}
         <View style={styles.innerContainer}>
-          {!loadingDaily && dailyWord && (
-            <View style={styles.dailyWordSection}>
-              <View style={styles.dailyWordCard}>
-                {/* Заголовок */}
-                <View style={styles.dailyWordHeader}>
-                  <Text style={styles.dailyWordLabel}>📅 Word of the Day</Text>
-                  <Text style={styles.dailyWordDate}>
-                    Update: {nextUpdateTime}
-                  </Text>
-                </View>
-
-                {/* Слово */}
-                <View style={styles.dailyWordContent}>
-                  <Text style={styles.dailyWordWord}>{dailyWord.word}</Text>
-                </View>
-
-                {/* Кнопка */}
-                {dailyWord.found ? (
-                  <View style={styles.dailyWordFoundBadge}>
-                    <Text style={styles.dailyWordFoundText}>✅ Found Today!</Text>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.dailyWordPlayButton}
-                    onPress={handlePlayDailyWord}
-                  >
-                    <Text style={styles.dailyWordPlayButtonText}>Play & Find It</Text>
-                  </TouchableOpacity>
-                )}
-
-                  <TouchableOpacity
-                    style={[styles.dailyWordPlayButton, { marginTop: 8 }]}
-                    onPress={handleForceDailyWord}
-                  >
-                    <Text style={styles.dailyWordPlayButtonText}>🐞 New daily word</Text>
-                  </TouchableOpacity>
-              </View>
-
-            </View>
-          )}
-
           <View style={styles.buttonsPanel}>
             {savedGameExists && (
               <PrimaryButton
@@ -325,7 +274,7 @@ export default function HomeScreen({ navigation }: Props) {
         </View>
 
         <Text style={styles.footer}>
-          Разработка: Лабораторная №5 — Дизайн и функциональные возможности
+          Разработка: Лабораторная №6 — Адаптация под конкретную платформу
         </Text>
 
         {/* Модал подтверждения новой игры — как было */}
@@ -388,6 +337,10 @@ const styles = StyleSheet.create({
   },
 
   // верхняя панель
+  topPanel: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -464,98 +417,164 @@ const styles = StyleSheet.create({
     // borderColor: 'rgba(13, 27, 42, 0.7)',
   },
 
-  
-  
-  dailyWordSection: {
-    marginBottom: 24,
-    borderRadius: 16,
-    overflow: 'hidden',
+  dailyWordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    gap: 0,
+    marginBottom: 16,
+    // paddingHorizontal: 4,
+    transform: [{ rotate: '-3deg' }],
+    left: '-9%',
   },
 
-  dailyWordCard: {
-    backgroundColor: '#FF9800',
+  dailyWordBox: {
+    flex: 1,
     borderWidth: 3,
     borderColor: '#0D1B2A',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    transform: [{ rotate: '-2deg' }],
-  },
-
-  dailyWordHeader: {
-    marginBottom: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'rgba(255, 255, 255, 0.3)',
-    paddingBottom: 8,
+    backgroundColor: '#0D1B2A',
+    borderRadius: 10,
+    overflow: 'hidden',
+    // marginRight: 8,
   },
 
   dailyWordLabel: {
-    fontSize: 13,
+    backgroundColor: '#0D1B2A',
+    color: '#E7ECEF',
+    textAlign: 'center',
     fontFamily: 'Unbounded',
-    fontWeight: '700',
-    color: '#FFF',
-    marginBottom: 4,
+    fontWeight: 'bold',
+    fontSize: 12,
+    paddingVertical: 3,
   },
 
-  dailyWordDate: {
-    fontSize: 10,
-    fontFamily: 'Unbounded',
-    color: 'rgba(255, 255, 255, 0.8)',
+  dailyWordValueWrapper: {
+    backgroundColor: '#A3CEF1',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
 
-  dailyWordContent: {
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-
-  dailyWordWord: {
-    fontSize: 36,
+  dailyWordValue: {
+    color: '#111',
+    textAlign: 'center',
     fontFamily: 'Unbounded',
     fontWeight: '900',
-    color: '#FFF',
-    marginBottom: 6,
+    fontSize: 20,
   },
 
-  dailyWordTranslation: {
-    fontSize: 13,
+  dailyWordTimerBadge: {
+    marginTop: 4,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(13, 27, 42, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(13, 27, 42, 0.3)',
+  },
+
+  dailyWordTimerText: {
+    marginLeft: 4,
+    fontSize: 10,
     fontFamily: 'Unbounded',
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontStyle: 'italic',
+    fontWeight: '600',
+    color: '#0D1B2A',
   },
 
-  dailyWordPlayButton: {
-    backgroundColor: '#0D1B2A',
-    borderWidth: 2,
+  dailyWordTimer: {
+    marginTop: 2,
+    fontSize: 10,
+    fontFamily: 'Unbounded',
+    color: '#0D1B2A',
+  },
+
+  dailyWordStatusPlay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    // paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 3,
     borderColor: '#0D1B2A',
-    borderRadius: 10,
-    paddingVertical: 10,
+    backgroundColor: '#FFE066',
+  },
+
+  dailyWordStatusFound: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    // paddingHorizontal: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    backgroundColor: '#A3CEF1',
   },
 
-  dailyWordPlayButtonText: {
-    fontSize: 14,
+  dailyWordStatusText: {
+    // marginLeft: 4,
+    fontSize: 12,
     fontFamily: 'Unbounded',
     fontWeight: '700',
-    color: '#FF9800',
+    color: '#0D1B2A',
   },
 
-  dailyWordFoundBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 2,
-    borderColor: '#FFF',
-    borderRadius: 10,
-    paddingVertical: 10,
+  dailyWordTimerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    marginBottom: 4,
+    paddingLeft: 8,
+    backgroundColor: '#A3CEF1',
+    borderWidth: 3,
+    borderColor: '#0D1B2A',
+    transform: [{ rotate: '-3deg' }],
+  },
+
+  dailyWordTimerHeader: {
+    backgroundColor: '#0D1B2A',
+    color: '#E7ECEF',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    fontFamily: 'Unbounded',
+    fontWeight: 'bold',
+    fontSize: 11,
+    paddingVertical: 3,
+    gap: 4,
   },
 
-  dailyWordFoundText: {
-    fontSize: 14,
-    fontFamily: 'Unbounded',
-    fontWeight: '700',
-    color: '#FFF',
-  },
+dailyWordTimerBox: {
+  borderWidth: 3,
+  borderColor: '#0D1B2A',
+  backgroundColor: '#A3CEF1',
+  borderRadius: 10,
+  overflow: 'hidden',
+  width: 200,
+  transform: [{ rotate: '-3deg' }],
+},
+
+dailyWordTimerValueWrapper: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+},
+
+dailyWordTimerValue: {
+  color: '#111',
+  fontFamily: 'Unbounded',
+  fontWeight: '900',
+  fontSize: 20,
+},
+
 });
 
 const confirmModal = StyleSheet.create({

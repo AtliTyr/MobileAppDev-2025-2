@@ -174,6 +174,12 @@ export default function GameScreen({ navigation, route }: Props) {
     }
   }, [currentWordSet, isDailyWordMode, dailyWordId]);
 
+  // тип: что именно закончилось
+  type EndChoiceReason = 'daily' | 'set' | null;
+
+  const [endlessChoiceVisible, setEndlessChoiceVisible] = useState(false);
+  const [endChoiceReason, setEndChoiceReason] = useState<EndChoiceReason>(null);
+
   // ========================================
   // 📍 REFS
   // ========================================
@@ -233,6 +239,14 @@ export default function GameScreen({ navigation, route }: Props) {
       console.log('✅ Все слова в наборе найдены');
       setCurrentTargetWord(null);
       setCurrentTargetId(null);
+
+      // показываем выбор: выйти или играть бесконечно
+      actions.pause();
+      setIsControlsDisabled(true);
+      stopBackgroundMusic();
+      setEndChoiceReason('set');
+      setEndlessChoiceVisible(true);
+
       return;
     }
 
@@ -782,8 +796,11 @@ export default function GameScreen({ navigation, route }: Props) {
         setCurrentTargetWord(null);
         setCurrentTargetId(null);
 
+        // помечаем, что после закрытия карточки нужно показать финальный выбор
+        setEndChoiceReason('daily');
+
         // ВАЖНО: не делаем здесь resume/playBackgroundMusic —
-        // это уже делает onClose у WordCard
+        // это уже делает onClose у WordCard (или финальный overlay)
         return;
       }
 
@@ -1326,17 +1343,86 @@ export default function GameScreen({ navigation, route }: Props) {
           </View>
         </Modal>
 
+        {/* Финальный выбор: выйти или играть бесконечно */}
+        <Modal visible={endlessChoiceVisible} transparent animationType="fade">
+          <View style={exitConfirmModal.overlay}>
+            <View style={[exitConfirmModal.cardShadow, exitConfirmModal.tilted]}>
+              <View style={exitConfirmModal.container}>
+                <Text style={exitConfirmModal.title}>
+                  {endChoiceReason === 'daily'
+                    ? 'Слово дня отгадано!'
+                    : 'Набор слов завершён!'}
+                </Text>
+
+                <Text style={exitConfirmModal.message}>
+                  Хотите выйти и подвести итоги, или продолжить играть бесконечно без целевого слова?
+                </Text>
+
+                <TouchableOpacity
+                  style={exitConfirmModal.buttonPrimary}
+                  onPress={async () => {
+                    // «Выйти» — имитируем game over + переход домой
+                    console.log('🏁 Игрок выбрал выход после завершения');
+                    // можно переиспользовать handleQuickExit или показать стандартный game over
+                    setEndlessChoiceVisible(false);
+                    setEndChoiceReason(null);
+                    await clearSavedGame();
+                    actions.restart();
+                    setIsControlsDisabled(false);
+                    navigation.dispatch(
+                      CommonActions.reset({
+                        index: 0,
+                        routes: [{ name: 'Home' }],
+                      })
+                    );
+                  }}
+                >
+                  <Text style={exitConfirmModal.buttonPrimaryText}>
+                    ВЫЙТИ И ПОДВЕСТИ ИТОГИ
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={exitConfirmModal.buttonSecondary}
+                  onPress={() => {
+                    // «Играть бесконечно»
+                    console.log('♾ Игрок продолжает бесконечную игру');
+                    setEndlessChoiceVisible(false);
+                    setEndChoiceReason(null);
+                    // целевое слово уже null, просто продолжаем
+                    setIsControlsDisabled(false);
+                    actions.resume();
+                    playBackgroundMusic();
+                  }}
+                >
+                  <Text style={exitConfirmModal.buttonSecondaryText}>
+                    ИГРАТЬ ДАЛЬШЕ
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Карточка только что найденного слова */}
         {justFoundWord && justFoundVisible && (
           <WordCard
-            word={justFoundWord}
             visible={justFoundVisible}
+            word={justFoundWord}
             onClose={() => {
               setJustFoundVisible(false);
               setJustFoundWord(null);
-              setIsControlsDisabled(false);
-              actions.resume();
-              playBackgroundMusic();
+
+              if (endChoiceReason) {
+                // открываем финальный выбор
+                setEndlessChoiceVisible(true);
+                // игра остаётся на паузе, музыка выключена
+              } else {
+                // обычное поведение
+                setIsControlsDisabled(false);
+                actions.resume();
+                playBackgroundMusic();
+              }
             }}
           />
         )}

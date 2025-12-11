@@ -1,28 +1,62 @@
+/**
+ * ✅ ИСПРАВЛЕННЫЙ dailyWordStorage.ts
+ * 
+ * Добавлен export для getDailyWordMeta
+ */
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { builtInWordSets, WordData } from '../types/wordSets';
 
 const DAILY_WORD_KEY = 'DAILY_WORD';
-const DAILY_WORD_DATE_KEY = 'DAILY_WORD_DATE';
-const RESET_HOUR = 7; // ⏰ Обновление в 07:00
+
+const DAILY_WORD_META_KEY = 'DAILY_WORD_META';
+
+const DEFAULT_INTERVAL_MS = 10 * 1000;
+// const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+const DEFAULT_RESET_HOUR = 7;
 
 export interface DailyWord {
   word: string;
   wordId: string;
   setId: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   found: boolean;
 }
 
-// ✅ Получить слово дня
+interface DailyWordMeta {
+  lastUpdatedAt: number;
+  intervalMs: number;
+}
+
+/**
+ * ✅ ТЕПЕРЬ ЭКСПОРТИРУЕТСЯ!
+ */
+export const getDailyWordMeta = async (): Promise<DailyWordMeta | null> => {
+  try {
+    const stored = await AsyncStorage.getItem(DAILY_WORD_META_KEY);
+    if (!stored) return null;
+    return JSON.parse(stored) as DailyWordMeta;
+  } catch (e) {
+    console.error('Error getting daily word meta:', e);
+    return null;
+  }
+};
+
+const setDailyWordMeta = async (meta: DailyWordMeta): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(DAILY_WORD_META_KEY, JSON.stringify(meta));
+  } catch (e) {
+    console.error('Error setting daily word meta:', e);
+  }
+};
+
 export const getDailyWord = async (): Promise<DailyWord | null> => {
   try {
     const stored = await AsyncStorage.getItem(DAILY_WORD_KEY);
     if (!stored) return null;
     const daily: DailyWord = JSON.parse(stored);
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Если дата устарела, вернуть null
-    if (daily.date !== today) return null;
     return daily;
   } catch (e) {
     console.error('Error getting daily word:', e);
@@ -30,35 +64,54 @@ export const getDailyWord = async (): Promise<DailyWord | null> => {
   }
 };
 
-// ✅ Установить слово дня (или обновить если прошло 24 часа)
-export const updateDailyWord = async (): Promise<DailyWord | null> => {
+const shouldUpdateDailyWord = async (intervalMs?: number): Promise<boolean> => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Проверить, есть ли актуальное слово
-    const existing = await getDailyWord();
-    if (existing) {
-      return existing;
+    const meta = await getDailyWordMeta();
+    const now = Date.now();
+    const effectiveInterval = intervalMs ?? meta?.intervalMs ?? DEFAULT_INTERVAL_MS;
+    if (!meta) {
+      return true;
     }
-    
-    // Выбрать случайный набор
-    const randomSetIndex = Math.floor(Math.random() * builtInWordSets.length);
-    const selectedSet = builtInWordSets[randomSetIndex];
-    
-    // Выбрать случайное слово из этого набора
-    const randomWordIndex = Math.floor(Math.random() * selectedSet.words.length);
-    const selectedWord = selectedSet.words[randomWordIndex];
-    
-    const dailyWord: DailyWord = {
-      word: selectedWord.word,
-      wordId: selectedWord.id,
-      setId: selectedSet.id,
-      date: today,
-      found: false,
-    };
-    
+    const diff = now - meta.lastUpdatedAt;
+    return diff >= effectiveInterval;
+  } catch (e) {
+    console.error('Error in shouldUpdateDailyWord:', e);
+    return true;
+  }
+};
+
+const generateNewDailyWord = (): DailyWord => {
+  const randomSetIndex = Math.floor(Math.random() * builtInWordSets.length);
+  const selectedSet = builtInWordSets[randomSetIndex];
+  const randomWordIndex = Math.floor(Math.random() * selectedSet.words.length);
+  const selectedWord = selectedSet.words[randomWordIndex];
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  return {
+    word: selectedWord.word,
+    wordId: selectedWord.id,
+    setId: selectedSet.id,
+    date: today,
+    found: false,
+  };
+};
+
+export const updateDailyWord = async (
+  intervalMs?: number
+): Promise<DailyWord | null> => {
+  try {
+    const mustUpdate = await shouldUpdateDailyWord(intervalMs);
+    if (!mustUpdate) {
+      const existing = await getDailyWord();
+      if (existing) return existing;
+    }
+    const dailyWord = generateNewDailyWord();
+    const now = Date.now();
     await AsyncStorage.setItem(DAILY_WORD_KEY, JSON.stringify(dailyWord));
-    await AsyncStorage.setItem(DAILY_WORD_DATE_KEY, today);
+    await setDailyWordMeta({
+      lastUpdatedAt: now,
+      intervalMs: intervalMs ?? DEFAULT_INTERVAL_MS,
+    });
     console.log('✅ Daily word updated:', dailyWord.word);
     return dailyWord;
   } catch (e) {
@@ -67,7 +120,6 @@ export const updateDailyWord = async (): Promise<DailyWord | null> => {
   }
 };
 
-// ✅ Отметить слово как найденное
 export const markDailyWordFound = async (): Promise<void> => {
   try {
     const daily = await getDailyWord();
@@ -80,59 +132,62 @@ export const markDailyWordFound = async (): Promise<void> => {
   }
 };
 
-// 🆕 ✨ Получить время до следующего обновления в формате HH:MM:SS
-export const getNextUpdateTime = (): string => {
-  const now = new Date();
-  const nextReset = new Date(now);
-  nextReset.setHours(RESET_HOUR, 0, 0, 0);
-  
-  // Если время обновления уже прошло сегодня, считаем на завтра
-  if (now > nextReset) {
-    nextReset.setDate(nextReset.getDate() + 1);
+export const getNextUpdateTime = async (): Promise<string> => {
+  try {
+    const meta = await getDailyWordMeta();
+    const now = Date.now();
+    if (meta) {
+      const nextAt = meta.lastUpdatedAt + meta.intervalMs;
+      const diffMs = Math.max(nextAt - now, 0);
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+      const hh = String(hours).padStart(2, '0');
+      const mm = String(minutes).padStart(2, '0');
+      const ss = String(seconds).padStart(2, '0');
+      return `${hh}:${mm}:${ss}`;
+    }
+    const nowDate = new Date();
+    const nextReset = new Date(nowDate);
+    nextReset.setHours(DEFAULT_RESET_HOUR, 0, 0, 0);
+    if (nowDate > nextReset) {
+      nextReset.setDate(nextReset.getDate() + 1);
+    }
+    const diffMs = nextReset.getTime() - nowDate.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(minutes).padStart(2, '0');
+    const ss = String(seconds).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  } catch (e) {
+    console.error('Error getting next update time:', e);
+    return '00:00:00';
   }
-  
-  const diffMs = nextReset.getTime() - now.getTime();
-  const hours = Math.floor(diffMs / (1000 * 60 * 60));
-  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-  
-  const hh = String(hours).padStart(2, '0');
-  const mm = String(minutes).padStart(2, '0');
-  const ss = String(seconds).padStart(2, '0');
-  
-  return `${hh}:${mm}:${ss}`;
 };
 
-// ✅ Получить дату обновления
 export const getDailyWordDate = async (): Promise<string | null> => {
   try {
-    return await AsyncStorage.getItem(DAILY_WORD_DATE_KEY);
+    const daily = await getDailyWord();
+    return daily?.date ?? null;
   } catch (e) {
     console.error('Error getting daily word date:', e);
     return null;
   }
 };
 
-export const forceNewDailyWord = async (): Promise<DailyWord | null> => {
+export const forceNewDailyWord = async (
+  intervalMs?: number
+): Promise<DailyWord | null> => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-
-    const randomSetIndex = Math.floor(Math.random() * builtInWordSets.length);
-    const selectedSet = builtInWordSets[randomSetIndex];
-
-    const randomWordIndex = Math.floor(Math.random() * selectedSet.words.length);
-    const selectedWord = selectedSet.words[randomWordIndex];
-
-    const dailyWord: DailyWord = {
-      word: selectedWord.word,
-      wordId: selectedWord.id,
-      setId: selectedSet.id,
-      date: today,
-      found: false,
-    };
-
+    const dailyWord = generateNewDailyWord();
+    const now = Date.now();
     await AsyncStorage.setItem(DAILY_WORD_KEY, JSON.stringify(dailyWord));
-    await AsyncStorage.setItem(DAILY_WORD_DATE_KEY, today);
+    await setDailyWordMeta({
+      lastUpdatedAt: now,
+      intervalMs: intervalMs ?? DEFAULT_INTERVAL_MS,
+    });
     console.log('🐞 DEBUG: Daily word FORCED to:', dailyWord.word);
     return dailyWord;
   } catch (e) {
@@ -145,15 +200,39 @@ export const getDailyWordAsWordData = async (): Promise<WordData | null> => {
   try {
     const stored = await AsyncStorage.getItem(DAILY_WORD_KEY);
     if (!stored) return null;
-
     const daily: DailyWord = JSON.parse(stored);
     const set = builtInWordSets.find(s => s.id === daily.setId);
     if (!set) return null;
-
     const word = set.words.find(w => w.id === daily.wordId);
     return word ?? null;
   } catch (e) {
     console.error('Error converting daily word to WordData:', e);
+    return null;
+  }
+};
+
+export const checkIfUpdateNeeded = async (): Promise<boolean> => {
+  try {
+    const meta = await getDailyWordMeta();
+    if (!meta) return true;
+    
+    const now = Date.now();
+    return now - meta.lastUpdatedAt >= meta.intervalMs;
+  } catch (error) {
+    console.error('Error checking if update needed:', error);
+    return true;
+  }
+};
+
+// Добавьте функцию для получения точного времени следующего обновления
+export const getNextUpdateTimestamp = async (): Promise<number | null> => {
+  try {
+    const meta = await getDailyWordMeta();
+    if (!meta) return null;
+    
+    return meta.lastUpdatedAt + meta.intervalMs;
+  } catch (error) {
+    console.error('Error getting next update timestamp:', error);
     return null;
   }
 };

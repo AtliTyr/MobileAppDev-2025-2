@@ -12,10 +12,10 @@ import { Tetromino } from '../types/tetromino';
 // ========================================
 
 const STORAGE_KEYS = {
-  GAME_STATE: 'tetris_game_state',
-  GAME_CONFIG: 'tetris_game_config',
-  HIGH_SCORE: 'tetris_high_score',
-  STATS: 'tetris_player_stats',
+  GAME_STATE: 'tetris_game_state',  // Состояние текущей игры
+  GAME_CONFIG: 'tetris_game_config',  // Конфигурация
+  HIGH_SCORE: 'tetris_high_score',  // Высший балл
+  STATS: 'tetris_player_stats', // Статистика игрока
 };
 
 // ========================================
@@ -23,18 +23,16 @@ const STORAGE_KEYS = {
 // ========================================
 
 interface SavedGameState {
-  version: string;
-  timestamp: number;
+  version: string;  // Версия сохранения ("1.0")
+  timestamp: number;  // Когда было сохранено
   gameState: Omit<GameState, 'currentTetromino' | 'nextTetrominos'> & {
     currentTetromino: Tetromino | null;
     nextTetrominos: Tetromino[];
-  };
-  config: GameConfig;
-  wordSetId?: string;
-
-  // ✨ новое:
-  currentTargetWord?: string | null;
-  currentTargetId?: string | null;
+  };  // Полное состояние игры
+  config: GameConfig; // Конфигурация игры
+  wordSetId?: string; // ID выбранного набора слов
+  currentTargetWord?: string | null;  // Целевое слово дня
+  currentTargetId?: string | null;  // ID целевого слова
 }
 
 
