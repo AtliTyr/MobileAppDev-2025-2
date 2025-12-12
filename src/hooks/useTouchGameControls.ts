@@ -68,8 +68,8 @@ export const useTouchGameControls = ({
     onSwipeLeft: onMoveLeft,
     onSwipeRight: onMoveRight,
     onSwipeDown: handleSwipeDown,
-    onSwipeUp: onRotate, // Свайп вверх = поворот
-    onTap: onRotate, // 🔥 Тап = поворот (ВАЖНО!)
+    onSwipeUp: onRotate,
+    onTap: onRotate,
     onContinuousLeft: handleContinuousLeft,
     onContinuousRight: handleContinuousRight,
     onContinuousDown: handleContinuousDown,
