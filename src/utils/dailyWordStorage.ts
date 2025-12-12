@@ -7,7 +7,7 @@ const DAILY_WORD_META_KEY = 'DAILY_WORD_META';
 // ⚙️ НАСТРОЙКИ ИНТЕРВАЛА
 const DEBUG_MODE = false;              // ← дебаг ВЫКЛ по умолчанию
 const DEBUG_INTERVAL_MS = 20_000;      // 20 сек для тестов (можешь менять)
-const DEFAULT_RESET_HOUR = 15;          // 07:00 локального времени
+const DEFAULT_RESET_HOUR = 7;          // 07:00 локального времени
 
 export interface DailyWord {
   word: string;
@@ -68,7 +68,7 @@ const getNextResetTimestampInternal = (): number => {
 
   const now = new Date();
   const nextReset = new Date(now);
-  nextReset.setHours(DEFAULT_RESET_HOUR, 46, 0, 0);
+  nextReset.setHours(DEFAULT_RESET_HOUR, 0, 0, 0);
 
   if (now >= nextReset) {
     // если уже после 07:00 — переносим на следующий день

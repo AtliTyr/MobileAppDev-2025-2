@@ -73,6 +73,64 @@ const generateTargetLetter = (targetLetters: string[]): string => {
   return normalized[idx];
 };
 
+const generateLettersPreferTarget = ({
+  count,
+  language,
+  targetLetters,
+  // насколько редко разрешаем «нецелевую» букву
+  backgroundChance = 0.03, // 3% по умолчанию
+}: {
+  count: number;
+  language: LetterLanguage;
+  targetLetters?: string[];
+  backgroundChance?: number; // 0..1
+}): string[] => {
+  const baseFreq = getLetterFrequencies(language);
+  
+  console.log('ЦЕЛЕВОГО СЛОВО', targetLetters);
+
+  // Если целевого слова нет — генерим только фоновые буквы
+  if (!targetLetters || targetLetters.length === 0) {
+    console.log('ЦЕЛЕВОГО СЛОВА НЕТ');
+    return Array.from({ length: count }, () => generateBackgroundLetter(baseFreq));
+  }
+
+  // Нормализуем целевые буквы
+  const normalizedTarget = targetLetters
+    .map((ch) => (ch ?? '').toUpperCase())
+    .filter((ch) => ch.length > 0);
+
+  // Оставляем только те целевые буквы, которые реально есть в алфавите текущего языка
+  const filteredByFreq = normalizedTarget.filter((ch) => baseFreq.some((f) => f.letter === ch));
+  const effectiveTarget = filteredByFreq.length > 0 ? filteredByFreq : normalizedTarget;
+
+  // Если по факту не осталось валидных символов — fallback на background
+  if (effectiveTarget.length === 0) {
+    return Array.from({ length: count }, () => generateBackgroundLetter(baseFreq));
+  }
+
+  const pBackground = Math.min(1, Math.max(0, backgroundChance));
+  const result: string[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const roll = Math.random();
+    if (roll < pBackground) {
+      result.push(generateBackgroundLetter(baseFreq)); // редкая «левая» буква по частотам
+    } else {
+      result.push(generateTargetLetter(effectiveTarget)); // почти всегда из target
+    }
+  }
+
+  // Если хочешь оставить перемешивание — можно, но при поштучной генерации оно уже не критично
+  // Fisher–Yates shuffle
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+
+  return result;
+};
+
 const generateWeightedLetters = ({
   count,
   language,
@@ -84,6 +142,7 @@ const generateWeightedLetters = ({
 }): string[] => {
   const baseFreq = getLetterFrequencies(language);
 
+  // Если целевого слова нет — генерим только фоновые буквы
   if (!targetLetters || targetLetters.length === 0) {
     const letters: string[] = [];
     for (let i = 0; i < count; i++) {
@@ -92,11 +151,23 @@ const generateWeightedLetters = ({
     return letters;
   }
 
+  // Нормализуем целевые буквы
   const normalizedTarget = targetLetters
-    .map(ch => ch.toUpperCase())
-    .filter(ch => baseFreq.some(f => f.letter === ch));
+    .map(ch => (ch ?? '').toUpperCase())
+    .filter(ch => ch.length > 0);
 
-  if (normalizedTarget.length === 0) {
+  // Пробуем отфильтровать по доступному алфавиту (частотам)
+  const filteredByFreq = normalizedTarget.filter(ch =>
+    baseFreq.some(f => f.letter === ch)
+  );
+
+  // Ключевой момент: если фильтрация дала пусто, но targetLetters реально есть,
+  // используем normalizedTarget как есть (не сваливаемся в background-only).
+  const effectiveTarget =
+    filteredByFreq.length > 0 ? filteredByFreq : normalizedTarget;
+
+  // Если по факту вообще нет валидных символов — тогда fallback на background
+  if (effectiveTarget.length === 0) {
     const letters: string[] = [];
     for (let i = 0; i < count; i++) {
       letters.push(generateBackgroundLetter(baseFreq));
@@ -104,24 +175,31 @@ const generateWeightedLetters = ({
     return letters;
   }
 
-  const targetRatio = 0.5;
+  // Доля букв из целевого слова
+  const targetRatio = 0.99;
+
   const targetCount = Math.max(1, Math.floor(count * targetRatio));
-  const backgroundCount = count - targetCount;
+  const backgroundCount = Math.max(0, count - targetCount);
+
   const result: string[] = [];
 
   for (let i = 0; i < targetCount; i++) {
-    result.push(generateTargetLetter(normalizedTarget));
+    result.push(generateTargetLetter(effectiveTarget));
   }
+
   for (let i = 0; i < backgroundCount; i++) {
     result.push(generateBackgroundLetter(baseFreq));
   }
 
+  // Shuffle (Fisher–Yates)
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
   }
+
   return result;
 };
+
 
 export class TetrominoFactory {
   // ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ ЯЗЫКА
@@ -202,7 +280,7 @@ export class TetrominoFactory {
     const language = options?.language || this.currentLanguage;
     
     console.log('🏭 TetrominoFactory.create: language =', language, 'type =', type);
-    
+
     const shape = TETROMINO_SHAPES[type];
     const color = TETROMINO_COLORS[type];
     const effectiveStartY = type === 'I' ? -1 : startY;
@@ -210,10 +288,12 @@ export class TetrominoFactory {
     const finalLetters =
       letters.length > 0
         ? letters
-        : generateWeightedLetters({
+        : generateLettersPreferTarget({
             count: this.countCells(shape),
-            language, // ← всегда из currentLanguage
+            language,
             targetLetters: options?.targetWordLetters,
+            // при желании можно учитывать buffMultiplier:
+            // backgroundChance: 0.03 / (options?.buffMultiplier ?? 1),
           });
 
     console.log('🏭 Generated letters for', type, ':', finalLetters);

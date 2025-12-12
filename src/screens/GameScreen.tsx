@@ -189,6 +189,8 @@ export default function GameScreen({ navigation, route }: Props) {
     isControlsDisabled,
     isPaused: gameState.isPaused,
   });
+  const prevLanguageRef = useRef<string | null>(null);
+  const didInitFiguresForTargetRef = useRef(false);
 
   const boardRef = useRef<TetrisBoardHandle | null>(null);
 
@@ -359,9 +361,47 @@ export default function GameScreen({ navigation, route }: Props) {
     initDailyWord();
   }, [isDailyWordMode, dailyWordId, route.params?.wordSetId]);
 
+  // useEffect(() => {
+  //   if (!gameState) return;
+  //   if (!currentTargetWord) return; // нет цели — не перегенерируем
+
+  //   const targetLetters = currentTargetWord.split('');
+
+  //   actions.setTargetWordLetters(targetLetters);
+
+  //   const newCurrentTetromino = TetrominoFactory.createRandom(undefined, {
+  //     targetWordLetters: targetLetters,
+  //   });
+
+  //   const newNextTetrominos = TetrominoFactory.createMultiple(
+  //     effectiveConfig.nextTetrominosCount,
+  //     { targetWordLetters: targetLetters }
+  //   );
+
+  //   actions.updateCurrentTetromino(newCurrentTetromino);
+  //   actions.updateNextTetrominos(newNextTetrominos);
+  // }, [currentTargetWord, effectiveConfig.nextTetrominosCount]);
+
   useEffect(() => {
-    if (!gameState) return;
-    if (!currentTargetWord) return; // нет цели — не перегенерируем
+    // Тут НЕ трогаем current/next тетромино.
+    // Только обновляем цель для будущей генерации.
+    if (!currentTargetWord) {
+      actions.setTargetWordLetters(undefined);
+      return;
+    }
+
+    actions.setTargetWordLetters(currentTargetWord.split(''));
+  }, [currentTargetWord, actions]);
+
+  useEffect(() => {
+    if (!currentTargetWord) return;
+
+    // всегда обновляем targetLettersRef (это не меняет существующие фигуры)
+    actions.setTargetWordLetters(currentTargetWord.split(''));
+
+    // ✅ но пересоздаём current/next только один раз — на старте
+    if (didInitFiguresForTargetRef.current) return;
+    didInitFiguresForTargetRef.current = true;
 
     const targetLetters = currentTargetWord.split('');
 
@@ -376,7 +416,8 @@ export default function GameScreen({ navigation, route }: Props) {
 
     actions.updateCurrentTetromino(newCurrentTetromino);
     actions.updateNextTetrominos(newNextTetrominos);
-  }, [currentTargetWord, effectiveConfig.nextTetrominosCount]);
+  }, [currentTargetWord, effectiveConfig.nextTetrominosCount, actions]);
+
 
   // ========================================
   // ⏱️ ТАЙМЕР ОБРАТНОГО ОТСЧЁТА
