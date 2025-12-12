@@ -17,7 +17,7 @@ export const useGameState = (
   onLevelUp?: () => void,
 ) => {
   const LOCK_DELAY_TIME = 500;
-
+  const MAX_LEVEL = 14; 
   /**
    * ✅ ФИКС: храним актуальные буквы целевого слова в ref.
    * Тогда любая “доливка” очереди (после 3 next-ов) продолжит учитывать цель.
@@ -114,9 +114,14 @@ export const useGameState = (
 
         const totalLines = prev.linesCleared + linesCleared;
         if (Math.floor(totalLines / 10) > Math.floor(prev.linesCleared / 10)) {
-          newLevel = prev.level + 1;
-          newGameSpeed = Math.max(100, prev.gameSpeed - config.speedIncreasePerLevel);
-          onLevelUp?.();
+          if (prev.level < MAX_LEVEL) {
+            newLevel = prev.level + 1;
+            newGameSpeed = Math.max(100, prev.gameSpeed - config.speedIncreasePerLevel);
+            onLevelUp?.();
+          } else {
+            newLevel = MAX_LEVEL;
+            newGameSpeed = prev.gameSpeed; // не ускоряем дальше
+          }
         }
       }
 
@@ -405,11 +410,15 @@ export const useGameState = (
   }, []);
 
   const levelUp = useCallback(() => {
-    setGameState((prev) => ({
-      ...prev,
-      level: prev.level + 1,
-      gameSpeed: Math.max(100, prev.gameSpeed - config.speedIncreasePerLevel),
-    }));
+    setGameState((prev) => {
+      if (prev.level >= MAX_LEVEL) return prev;
+
+      return {
+        ...prev,
+        level: prev.level + 1,
+        gameSpeed: Math.max(100, prev.gameSpeed - config.speedIncreasePerLevel),
+      };
+    });
   }, [config.speedIncreasePerLevel]);
 
   const spawnNewTetromino = useCallback(() => {
