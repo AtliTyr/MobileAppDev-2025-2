@@ -30,23 +30,24 @@ export const useAppStateListener = () => {
           
           const needsUpdate = Date.now() - meta.lastUpdatedAt >= meta.intervalMs;
           
-          if (needsUpdate) {
+            if (needsUpdate) {
             console.log('🔄 Updating daily word on app resume');
-            const newWord = await updateDailyWord();
-            
+
+            // ✅ intervalMs обязателен
+            const newWord = await updateDailyWord(meta.intervalMs);
+
             if (newWord) {
-              // Показываем уведомление только если слово действительно изменилось
-              await Notifications.scheduleNotificationAsync({
+                await Notifications.scheduleNotificationAsync({
                 content: {
-                  title: '🆕 Новое слово дня!',
-                  body: `Новое слово: ${newWord.word.toUpperCase()}`,
-                  data: { screen: 'Home' },
-                  sound: true,
+                    title: '🆕 Новое слово дня!',
+                    body: `Новое слово: ${newWord.word.toUpperCase()}`,
+                    data: { screen: 'Home' },
+                    sound: true,
                 },
                 trigger: null,
-              });
+                });
             }
-          }
+            }
         } catch (error) {
           console.error('Error checking daily word on app resume:', error);
         }

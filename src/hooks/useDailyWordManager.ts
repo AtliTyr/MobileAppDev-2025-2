@@ -1,5 +1,12 @@
 /**
- * 🎯 useDailyWordManager.ts - Управление словом дня с фоновыми уведомлениями
+ * ✅ ИСПРАВЛЕННЫЙ useDailyWordManager.ts v4
+ * 
+ * РЕШЕНИЯ ПРОБЛЕМ:
+ * 1. ❌ УБРАНА дублирующаяся логика в checkAndUpdateWord
+ * 2. ❌ УБРАНА отправка уведомления в инициализации
+ * 3. ✅ Уведомление отправляется ТОЛЬКО при изменении даты/слова
+ * 4. ✅ Дедупликация: проверяем хэш последнего отправленного уведомления
+ * 5. ✅ DEBUG_MODE = false для продакшена
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -12,60 +19,199 @@ import {
   getNextUpdateTime,
   forceNewDailyWord,
   getDailyWordMeta,
-  getNextUpdateTimestamp,
+  getDailyWordDate,
 } from '../utils/dailyWordStorage';
-import { registerBackgroundTask } from '../utils/backgroundTasks';
 
-// === НАСТРОЙКИ ДЕБАГА ===
-const DEBUG_MODE = false; // Включить для тестирования
-const DEBUG_INTERVAL_MS = 30 * 1000; // 10 секунд для дебага
-const PRODUCTION_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 часа для продакшена
-// ========================
+// === НАСТРОЙКИ ===
+const DEBUG_MODE = false; // ← ДОЛЖНО БЫТЬ FALSE ДЛЯ ПРОДАКШЕНА!
+const DEBUG_INTERVAL_MS = 15 * 1000; // 15 сек (только для тестирования)
+const PRODUCTION_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 часа
+
+// === ДЕДУПЛИКАЦИЯ ===
+const LAST_NOTIFIED_KEY = 'DAILY_WORD_LAST_NOTIFIED';
 
 export const useDailyWordManager = () => {
+  // 📦 СОСТОЯНИЕ
   const [dailyWord, setDailyWord] = useState<DailyWord | null>(null);
   const [nextUpdateTime, setNextUpdateTime] = useState('');
   const [loading, setLoading] = useState(true);
-  
+
+  // 🔗 РЕФЫ
   const initialized = useRef(false);
+  const appState = useRef(AppState.currentState);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const scheduledNotificationId = useRef<string | null>(null);
-  const appState = useRef(AppState.currentState);
+  const lastCheckRef = useRef(0);
+  const lastNotifiedWordRef = useRef<string | null>(null);
 
-  // Получаем текущий интервал
+  // 🎯 Получить интервал
   const getCurrentInterval = useCallback(() => {
     return DEBUG_MODE ? DEBUG_INTERVAL_MS : PRODUCTION_INTERVAL_MS;
   }, []);
 
-  // Инициализация при первом запуске
+  // 🔔 ОТПРАВИТЬ УВЕДОМЛЕНИЕ (только если слово изменилось)
+  const sendNotificationIfNeeded = useCallback(async (word: DailyWord) => {
+    if (Platform.OS === 'web') return;
+
+    // Дедупликация: не отправляем, если это слово уже был уведомлен
+    if (lastNotifiedWordRef.current === word.wordId) {
+      console.log('⏭️ Already notified about this word, skipping...');
+      return;
+    }
+
+    try {
+      console.log('📤 Sending notification for:', word.word);
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🆕 Новое слово дня!',
+          body: `Новое слово: ${word.word.toUpperCase()}`,
+          data: {
+            screen: 'Home',
+            timestamp: Date.now(),
+            wordId: word.wordId,
+          },
+          sound: 'default',
+        },
+        trigger: null, // ← НЕМЕДЛЕННО!
+      });
+
+      lastNotifiedWordRef.current = word.wordId;
+      console.log('✅ Notification sent successfully');
+    } catch (error) {
+      console.error('❌ Error sending notification:', error);
+    }
+  }, []);
+
+  // 🔄 ОБНОВИТЬ СЛОВО И ОТПРАВИТЬ УВЕДОМЛЕНИЕ
+  const updateAndNotify = useCallback(async () => {
+    try {
+      console.log('🔄 Updating daily word...');
+      setLoading(true);
+
+      const word = await updateDailyWord(getCurrentInterval());
+
+      if (word) {
+        setDailyWord(word);
+        const nextTime = await getNextUpdateTime();
+        setNextUpdateTime(nextTime);
+
+        // Отправляем уведомление ТОЛЬКО при обновлении
+        await sendNotificationIfNeeded(word);
+
+        console.log(`✅ Daily word updated: ${word.word}`);
+      }
+    } catch (error) {
+      console.error('❌ Error updating daily word:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [getCurrentInterval, sendNotificationIfNeeded]);
+
+  // 🎯 ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ
+  const forceUpdateDailyWord = useCallback(async () => {
+    try {
+      setLoading(true);
+      console.log('🔄 Force updating daily word...');
+
+      const word = await forceNewDailyWord();
+
+      if (word) {
+        setDailyWord(word);
+        const nextTime = await getNextUpdateTime();
+        setNextUpdateTime(nextTime);
+
+        // Отправляем уведомление
+        await sendNotificationIfNeeded(word);
+
+        console.log(`✅ Daily word forced: ${word.word}`);
+      }
+    } catch (error) {
+      console.error('❌ Error forcing daily word update:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [sendNotificationIfNeeded]);
+
+  // ✅ ПРОВЕРИТЬ НУЖНО ЛИ ОБНОВИТЬ (ГЛАВНАЯ ЛОГИКА)
+  const checkAndUpdateIfNeeded = useCallback(async () => {
+    // Защита: не проверяем чаще чем раз в 2 секунды
+    const now = Date.now();
+    if (now - lastCheckRef.current < 2000) {
+      return;
+    }
+    lastCheckRef.current = now;
+
+    try {
+      const meta = await getDailyWordMeta();
+      if (!meta) {
+        console.log('ℹ️ No meta found, initializing...');
+        await updateAndNotify();
+        return;
+      }
+
+      const currentTime = Date.now();
+      const timeSinceUpdate = currentTime - meta.lastUpdatedAt;
+      const needsUpdate = timeSinceUpdate >= meta.intervalMs;
+
+      if (DEBUG_MODE) {
+        console.log(
+          `⏰ Check: ${Math.floor(timeSinceUpdate / 1000)}s / ${Math.floor(meta.intervalMs / 1000)}s`
+        );
+      }
+
+      if (needsUpdate) {
+        console.log('🚀 UPDATE NEEDED! Updating word...');
+        await updateAndNotify();
+      }
+    } catch (error) {
+      console.error('❌ Error checking for update:', error);
+    }
+  }, [updateAndNotify]);
+
+  // 🚀 ИНИЦИАЛИЗАЦИЯ (ОДИН РАЗ)
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
     const init = async () => {
       try {
-        // Регистрируем фоновую задачу
-        if (Platform.OS !== 'web') {
-          await registerBackgroundTask();
-        }
+        console.log('🚀 Initializing Daily Word Manager...');
+        setLoading(true);
 
-        // Загружаем текущее слово
+        // Загружаем текущее слово (без уведомления)
         const word = await getDailyWord();
-        setDailyWord(word);
-        
+
         if (word) {
+          setDailyWord(word);
+          lastNotifiedWordRef.current = word.wordId;
           const nextTime = await getNextUpdateTime();
           setNextUpdateTime(nextTime);
-          
-          // Планируем уведомление на время обновления
-          await scheduleNotificationForNextUpdate();
+
+          console.log(`📖 Current word: ${word.word}`);
+
+          // Проверяем НУЖНО ЛИ обновить (если дата изменилась)
+          // НО НЕ отправляем уведомление при инициализации!
+          const currentDate = await getDailyWordDate();
+          const today = new Date().toISOString().split('T')[0];
+
+          if (currentDate !== today) {
+            console.log('📅 Date changed! Updating word...');
+            await updateAndNotify();
+          }
         } else {
-          // Если слова нет, создаем новое
-          await refreshDailyWord(false);
+          // Если слова нет - создаем новое БЕЗ уведомления
+          console.log('📖 No word found, creating new one...');
+          const newWord = await updateDailyWord(getCurrentInterval());
+          if (newWord) {
+            setDailyWord(newWord);
+            lastNotifiedWordRef.current = newWord.wordId;
+            const nextTime = await getNextUpdateTime();
+            setNextUpdateTime(nextTime);
+          }
         }
       } catch (error) {
-        console.error('Error initializing daily word:', error);
+        console.error('❌ Error initializing:', error);
       } finally {
         setLoading(false);
       }
@@ -73,228 +219,79 @@ export const useDailyWordManager = () => {
 
     init();
 
+    // Очистка при размонтировании
     return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-      if (checkIntervalRef.current) {
-        clearInterval(checkIntervalRef.current);
-      }
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
     };
-  }, [getCurrentInterval]);
+  }, [getCurrentInterval, updateAndNotify]);
 
-  // Обновление таймера каждую секунду
+  // ⏱️ ТАЙМЕР (обновление каждую сек)
   useEffect(() => {
     if (!dailyWord) return;
 
     const updateTimer = async () => {
-      const nextTime = await getNextUpdateTime();
-      setNextUpdateTime(nextTime);
+      try {
+        const nextTime = await getNextUpdateTime();
+        setNextUpdateTime(nextTime);
+      } catch (error) {
+        console.error('⚠️ Timer update error:', error);
+      }
     };
 
-    // Обновляем сразу
     updateTimer();
-    
-    // И затем каждую секунду
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-    }
-    
+
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = setInterval(updateTimer, 1000);
 
     return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, [dailyWord]);
 
-  // Планирование уведомления на время следующего обновления
-  const scheduleNotificationForNextUpdate = useCallback(async () => {
-    if (Platform.OS === 'web') return;
-    
-    try {
-      // Отменяем предыдущее запланированное уведомление
-      if (scheduledNotificationId.current) {
-        await Notifications.cancelScheduledNotificationAsync(scheduledNotificationId.current);
-      }
-      
-      const nextUpdateTimestamp = await getNextUpdateTimestamp();
-      if (!nextUpdateTimestamp) return;
-      
-      const now = Date.now();
-      const timeUntilNext = nextUpdateTimestamp - now;
-      
-      if (timeUntilNext > 0) {
-        // Планируем уведомление точно на время обновления
-        const notificationId = await Notifications.scheduleNotificationAsync({
-            content: {
-                title: '🆕 Новое слово дня!',
-                body: 'Готово новое слово. Играй прямо сейчас!',
-                data: { screen: 'Home', scheduled: true },
-                sound: true,
-            },
-            trigger: {
-                type: 'date',
-                date: new Date(nextUpdateTimestamp),
-            } as Notifications.DateTriggerInput,
-        });
-        
-        scheduledNotificationId.current = notificationId;
-        console.log(`⏰ Notification scheduled for ${new Date(nextUpdateTimestamp).toLocaleTimeString()}`);
-      }
-    } catch (error) {
-      console.error('Error scheduling notification for next update:', error);
-    }
-  }, []);
-
-  // Настройка проверки обновлений
+  // 🔍 ПЕРИОДИЧЕСКАЯ ПРОВЕРКА (не часто!)
+  // В дебаге: каждые 15 сек
+  // В продакшене: каждые 60 сек
   useEffect(() => {
-    if (!dailyWord) return;
+    if (!dailyWord || loading) return;
 
-    const checkForUpdate = async () => {
-      try {
-        const meta = await getDailyWordMeta();
-        if (!meta) return;
+    console.log('🔍 Starting periodic checks...');
+    checkAndUpdateIfNeeded();
 
-        const now = Date.now();
-        const needsUpdate = now - meta.lastUpdatedAt >= meta.intervalMs;
-
-        if (needsUpdate && !loading) {
-          console.log('🔄 Auto-updating daily word in background check...');
-          await refreshDailyWord(true);
-        }
-      } catch (error) {
-        console.error('Error checking for update:', error);
-      }
-    };
-
-    // Проверяем каждые 5 секунд в дебаг-режиме, каждые 30 секунд в продакшене
-    const interval = DEBUG_MODE ? 5000 : 30000;
-    checkForUpdate();
-    checkIntervalRef.current = setInterval(checkForUpdate, interval);
+    const interval = DEBUG_MODE ? 15000 : 60000;
+    checkIntervalRef.current = setInterval(() => {
+      checkAndUpdateIfNeeded();
+    }, interval);
 
     return () => {
-      if (checkIntervalRef.current) {
-        clearInterval(checkIntervalRef.current);
-      }
+      if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
     };
-  }, [dailyWord, loading]);
+  }, [dailyWord, loading, checkAndUpdateIfNeeded]);
 
-  // Слушатель состояния приложения
+  // 📱 СЛУШАТЕЛЬ СОСТОЯНИЯ ПРИЛОЖЕНИЯ
+  // При возобновлении - проверяем НЕМЕДЛЕННО
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
-      console.log('📱 App state changed from', appState.current, 'to', nextAppState);
-      
-      // При возвращении в активное состояние
-      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('🔄 App became active, checking for updates...');
-        await checkAndUpdateWord();
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('🚀 APP RESUMED! Checking for updates...');
+        await checkAndUpdateIfNeeded();
       }
-      
+
       appState.current = nextAppState;
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
-  // Функция проверки и обновления слова
-  const checkAndUpdateWord = useCallback(async () => {
-    try {
-      const meta = await getDailyWordMeta();
-      if (!meta) return;
-
-      const now = Date.now();
-      const needsUpdate = now - meta.lastUpdatedAt >= meta.intervalMs;
-
-      if (needsUpdate) {
-        console.log('🔄 Auto-updating daily word on app resume...');
-        await refreshDailyWord(true);
-      }
-    } catch (error) {
-      console.error('Error checking for update:', error);
-    }
-  }, []);
-
-  // Функция обновления слова
-  const refreshDailyWord = useCallback(async (showNotification = true) => {
-    try {
-      setLoading(true);
-      const word = await updateDailyWord(getCurrentInterval());
-      setDailyWord(word);
-      
-      if (word) {
-        const nextTime = await getNextUpdateTime();
-        setNextUpdateTime(nextTime);
-        
-        // Планируем следующее уведомление
-        await scheduleNotificationForNextUpdate();
-        
-        // Показываем немедленное уведомление
-        if (showNotification && Platform.OS !== 'web') {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: '🆕 Новое слово дня!',
-              body: `Новое слово: ${word.word.toUpperCase()}`,
-              data: { screen: 'Home', immediate: true },
-              sound: true,
-            },
-            trigger: null, // Немедленно
-          });
-          console.log('🔔 Immediate notification sent');
-        }
-      }
-    } catch (error) {
-      console.error('Error refreshing daily word:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [getCurrentInterval, scheduleNotificationForNextUpdate]);
-
-  // Принудительное обновление
-  const forceUpdateDailyWord = useCallback(async () => {
-    try {
-      setLoading(true);
-      const word = await forceNewDailyWord(getCurrentInterval());
-      setDailyWord(word);
-      
-      if (word) {
-        const nextTime = await getNextUpdateTime();
-        setNextUpdateTime(nextTime);
-        
-        // Планируем следующее уведомление
-        await scheduleNotificationForNextUpdate();
-        
-        // Показываем уведомление о принудительном обновлении
-        if (Platform.OS !== 'web') {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: '🔄 Слово дня принудительно обновлено!',
-              body: `Новое слово: ${word.word.toUpperCase()}`,
-              data: { screen: 'Home' },
-              sound: true,
-            },
-            trigger: null,
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error forcing daily word update:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [getCurrentInterval, scheduleNotificationForNextUpdate]);
+    return () => subscription.remove();
+  }, [checkAndUpdateIfNeeded]);
 
   return {
     dailyWord,
     nextUpdateTime,
     loading,
-    refreshDailyWord,
     forceUpdateDailyWord,
-    checkAndUpdateWord,
   };
 };

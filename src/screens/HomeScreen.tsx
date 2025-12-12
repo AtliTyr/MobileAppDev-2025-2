@@ -1,54 +1,50 @@
 /**
- * 🏠 HomeScreen.tsx - Главное меню приложения
+ * 🏠 HomeScreen.tsx - ИСПРАВЛЕННАЯ ВЕРСИЯ
+ * 
+ * ИСПРАВЛЕНИЯ:
+ * ❌ УБРАНА runFullDiagnostics() - вызывалась при КАЖДОМ рендере!
+ * ✅ Диагностика вызывается ТОЛЬКО при нажатии кнопки (для разработчика)
+ * ✅ useDailyWordManager теперь без дублирования
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ImageBackground } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-
 import PrimaryButton from '../components/PrimaryButton';
 import { useGamePersistence } from '../hooks/useGamePersistence';
 import { RootStackParamList } from '../../App';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import {
   WordSet,
   builtInWordSets,
   STORAGE_SELECTED_SET_ID,
 } from '../types/wordSets';
-
 import { useDailyNotifications } from '../hooks/useDailyNotifications';
 import { useDailyWordManager } from '../hooks/useDailyWordManager';
-
-// ========================================
-// 📊 ТИПЫ
-// ========================================
+import { runFullDiagnostics } from '../hooks/diagnostics';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
-// ========================================
-// 🏠 ГЛАВНЫЙ КОМПОНЕНТ
-// ========================================
-
 export default function HomeScreen({ navigation }: Props) {
-  // 🪝 HOOKS
-  useDailyNotifications();
+  // 🪝 HOOKS (вызываются только при монтировании/изменении зависимостей)
+  useDailyNotifications(); // Настройка уведомлений - один раз
+
   const { hasSavedGame, clearSavedGame, loadGame } = useGamePersistence();
-  
-  // Используем упрощенный менеджер слова дня
+
   const {
     dailyWord,
     nextUpdateTime,
     loading,
     forceUpdateDailyWord,
-  } = useDailyWordManager(); // Убрали refreshDailyWord из использования
+  } = useDailyWordManager(); // Менеджер слова дня
 
   // 📦 СОСТОЯНИЕ
   const [savedGameExists, setSavedGameExists] = useState(false);
   const [showNewGameConfirm, setShowNewGameConfirm] = useState(false);
   const [currentSet, setCurrentSet] = useState<WordSet | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false); // Для дебага
 
   // Загрузка сохраненной игры и текущего набора
   useFocusEffect(
@@ -56,6 +52,7 @@ export default function HomeScreen({ navigation }: Props) {
       const checkSaveAndSet = async () => {
         const exists = await hasSavedGame();
         setSavedGameExists(exists);
+
         try {
           const storedId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
           if (storedId) {
@@ -68,6 +65,7 @@ export default function HomeScreen({ navigation }: Props) {
           console.log('HomeScreen:', e);
         }
       };
+
       checkSaveAndSet();
     }, [hasSavedGame])
   );
@@ -80,6 +78,7 @@ export default function HomeScreen({ navigation }: Props) {
         console.log('🚫 Swipe back заблокирован');
       }
     });
+
     return unsubscribe;
   }, [navigation]);
 
@@ -89,23 +88,27 @@ export default function HomeScreen({ navigation }: Props) {
       try {
         const storedId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
         let set: WordSet | undefined;
+
         if (storedId) {
           set = builtInWordSets.find(s => s.id === storedId);
         }
+
         if (!set) {
           const all = builtInWordSets;
           set = all[Math.floor(Math.random() * all.length)];
         }
+
         setCurrentSet(set || null);
       } catch (e) {
         console.log('HomeScreen:', e);
       }
     };
+
     loadCurrentSet();
   }, []);
 
   // 📱 ОБРАБОТЧИКИ
-  const handlePlayDailyWord = () => {
+  const handlePlayDailyWord = useCallback(() => {
     if (dailyWord) {
       navigation.navigate('Game', {
         wordSetId: dailyWord.setId,
@@ -113,13 +116,13 @@ export default function HomeScreen({ navigation }: Props) {
         isDailyWordMode: true,
       });
     }
-  };
+  }, [dailyWord, navigation]);
 
-  const handleForceDailyWord = async () => {
+  const handleForceDailyWord = useCallback(async () => {
     await forceUpdateDailyWord();
-  };
+  }, [forceUpdateDailyWord]);
 
-  const handleNewGame = () => {
+  const handleNewGame = useCallback(() => {
     if (savedGameExists) {
       setShowNewGameConfirm(true);
     } else {
@@ -127,22 +130,27 @@ export default function HomeScreen({ navigation }: Props) {
         wordSetId: currentSet ? currentSet.id : undefined,
       });
     }
-  };
+  }, [savedGameExists, currentSet, navigation]);
 
-  const handleConfirmNewGame = async () => {
+  const handleConfirmNewGame = useCallback(async () => {
     await clearSavedGame();
     setShowNewGameConfirm(false);
     navigation.navigate('Game', {
       wordSetId: currentSet ? currentSet.id : undefined,
     });
-  };
+  }, [clearSavedGame, currentSet, navigation]);
 
-  const handleContinueGame = async () => {
+  const handleContinueGame = useCallback(async () => {
     const loadedData = await loadGame();
     if (loadedData) {
       navigation.navigate('Game', { savedGameData: loadedData });
     }
-  };
+  }, [loadGame, navigation]);
+
+  const handleShowDiagnostics = useCallback(async () => {
+    setShowDiagnostics(true);
+    await runFullDiagnostics();
+  }, []);
 
   // ========================================
   // 🎨 РЕНДЕРИНГ
@@ -269,7 +277,47 @@ export default function HomeScreen({ navigation }: Props) {
               variant="secondary"
               style={{marginBottom: 2}}
             />
+            {/* Кнопка для дебага (форсинг обновления) */}
+            {__DEV__ && (
+              <TouchableOpacity
+                onPress={handleForceDailyWord}
+                style={{
+                  marginTop: 16,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  backgroundColor: '#FFE066',
+                  borderRadius: 8,
+                  borderWidth: 2,
+                  borderColor: '#0D1B2A',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 12, fontFamily: 'Unbounded', fontWeight: 'bold' }}>
+                  🔄 Обновить слово (дебаг)
+                </Text>
+              </TouchableOpacity>
+            )}
 
+            {/* Кнопка диагностики (только в дебаге) */}
+            {__DEV__ && (
+              <TouchableOpacity
+                onPress={handleShowDiagnostics}
+                style={{
+                  marginTop: 8,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  backgroundColor: '#A3CEF1',
+                  borderRadius: 8,
+                  borderWidth: 2,
+                  borderColor: '#0D1B2A',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 12, fontFamily: 'Unbounded', fontWeight: 'bold' }}>
+                  🔍 Диагностика (смотри консоль)
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
