@@ -224,7 +224,7 @@ export const checkIfUpdateNeeded = async (): Promise<boolean> => {
   }
 };
 
-// Добавьте функцию для получения точного времени следующего обновления
+// Функция для получения точного времени следующего обновления
 export const getNextUpdateTimestamp = async (): Promise<number | null> => {
   try {
     const meta = await getDailyWordMeta();

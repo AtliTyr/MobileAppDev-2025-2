@@ -12,6 +12,9 @@ import DictionaryScreen from './src/screens/DictionaryScreen';
 import { GameState, GameConfig } from './src/types/game';
 import { useAppStateListener } from './src/hooks/useAppStateListener';
 
+import * as TaskManager from 'expo-task-manager';
+import './src/utils/backgroundTasks';
+
 export type RootStackParamList = {
   Home: undefined;
   Game:
@@ -36,6 +39,16 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
+  React.useEffect(() => {
+    // Проверяем статус фоновой задачи при запуске
+    const checkTask = async () => {
+      const status = await TaskManager.getTaskOptionsAsync('DAILY_WORD_UPDATE');
+      console.log('Background task status:', status);
+    };
+    
+    checkTask();
+  }, []);
+
   useAppStateListener(); 
 
   return (
