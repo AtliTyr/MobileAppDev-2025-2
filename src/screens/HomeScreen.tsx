@@ -107,6 +107,33 @@ export default function HomeScreen({ navigation }: Props) {
     loadCurrentSet();
   }, []);
 
+  const getRandomSet = () => {
+    const all = builtInWordSets;
+    return all[Math.floor(Math.random() * all.length)];
+  };
+
+  const resolveSetIdForNewGame = async (): Promise<string> => {
+    // 1) Если set уже выбран в UI — используем его
+    if (currentSet?.id) return currentSet.id;
+
+    // 2) Если currentSet null, но в AsyncStorage есть выбранный setId — используем его
+    const storedId = await AsyncStorage.getItem(STORAGE_SELECTED_SET_ID);
+    if (storedId) {
+      const storedSet = builtInWordSets.find(s => s.id === storedId);
+      if (storedSet) return storedSet.id;
+    }
+
+    // 3) Иначе — реально выбираем случайный набор
+    const randomSet = getRandomSet();
+
+    // (опционально, но полезно) сохранить как “текущий”,
+    // чтобы и HomeScreen, и следующий запуск видели тот же набор
+    await AsyncStorage.setItem(STORAGE_SELECTED_SET_ID, randomSet.id);
+    setCurrentSet(randomSet);
+
+    return randomSet.id;
+  };
+
   // 📱 ОБРАБОТЧИКИ
   const handlePlayDailyWord = useCallback(() => {
     if (dailyWord) {
@@ -122,23 +149,23 @@ export default function HomeScreen({ navigation }: Props) {
     await forceUpdateDailyWord();
   }, [forceUpdateDailyWord]);
 
-  const handleNewGame = useCallback(() => {
+  const handleNewGame = useCallback(async () => {
     if (savedGameExists) {
       setShowNewGameConfirm(true);
-    } else {
-      navigation.navigate('Game', {
-        wordSetId: currentSet ? currentSet.id : undefined,
-      });
+      return;
     }
-  }, [savedGameExists, currentSet, navigation]);
+
+    const setId = await resolveSetIdForNewGame();
+    navigation.navigate('Game', { wordSetId: setId });
+  }, [savedGameExists, navigation, currentSet]);
 
   const handleConfirmNewGame = useCallback(async () => {
     await clearSavedGame();
     setShowNewGameConfirm(false);
-    navigation.navigate('Game', {
-      wordSetId: currentSet ? currentSet.id : undefined,
-    });
-  }, [clearSavedGame, currentSet, navigation]);
+
+    const setId = await resolveSetIdForNewGame();
+    navigation.navigate('Game', { wordSetId: setId });
+  }, [clearSavedGame, navigation, currentSet]);
 
   const handleContinueGame = useCallback(async () => {
     const loadedData = await loadGame();
@@ -277,27 +304,6 @@ export default function HomeScreen({ navigation }: Props) {
               variant="secondary"
               style={{marginBottom: 2}}
             />
-            {/* Кнопка для дебага (форсинг обновления) */}
-            {__DEV__ && (
-              <TouchableOpacity
-                onPress={handleForceDailyWord}
-                style={{
-                  marginTop: 16,
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  backgroundColor: '#FFE066',
-                  borderRadius: 8,
-                  borderWidth: 2,
-                  borderColor: '#0D1B2A',
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 12, fontFamily: 'Unbounded', fontWeight: 'bold' }}>
-                  🔄 Обновить слово (дебаг)
-                </Text>
-              </TouchableOpacity>
-            )}
-
             {/* Кнопка диагностики (только в дебаге) */}
             {__DEV__ && (
               <TouchableOpacity
