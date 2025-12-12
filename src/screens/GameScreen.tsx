@@ -586,7 +586,7 @@ export default function GameScreen({ navigation, route }: Props) {
         actions.hardDrop();
       }
     },
-    onSoftDrop: () => {
+    onSoftDrop: (_stepMs: number) => {
       const state = stateRef.current;
       if (!state.isControlsDisabled && !state.isPaused) {
         playSound('move');
@@ -594,6 +594,21 @@ export default function GameScreen({ navigation, route }: Props) {
       }
     },
   });
+
+  // useEffect(() => {
+  //   if (gameState.isPaused) {
+  //     console.log('⏸️ Game paused - resetting swipe state');
+  //     touchControls.resetSwipeState?.();
+  //   }
+  // }, [gameState.isPaused, touchControls]);
+
+  // // 🔥 ИСПРАВЛЕНИЕ: Остановка свайпов при завершении игры
+  // useEffect(() => {
+  //   if (gameState.isGameOver) {
+  //     console.log('🎮 Game over - stopping all swipe actions');
+  //     touchControls.resetSwipeState?.();
+  //   }
+  // }, [gameState.isGameOver, touchControls]);
 
   // ========================================
   // 🎮 ОБРАБОТЧИКИ

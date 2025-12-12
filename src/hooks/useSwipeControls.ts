@@ -1,4 +1,4 @@
-// hooks/useSwipeControls.ts - ПЕРЕДЕЛАНО: Логика на основе ВРЕМЕНИ удержания
+// hooks/useSwipeControls.ts - С ИСПРАВЛЕННОЙ ОБРАБОТКОЙ ТАПОВ
 
 import { useCallback, useRef, useEffect } from 'react';
 import { PanResponder, GestureResponderEvent } from 'react-native';
@@ -16,32 +16,30 @@ interface SwipeCallbacks {
 }
 
 export const useSwipeControls = (callbacks: SwipeCallbacks) => {
-  const touchStart = useRef<{ x: number; y: number; time: number } | null>(
-    null
-  );
-
+  const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
   const currentTouchPos = useRef<{ x: number; y: number } | null>(null);
   const currentDirectionRef = useRef<'left' | 'right' | 'down' | null>(null);
-  const moveIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const continuousMovesTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isInContinuousModeRef = useRef(false); // 🔴 НОВОЕ: вошли ли в режим continuous
-  const hasProcessedAsSwipeRef = useRef(false); // 🔴 НОВОЕ: уже ли обработали как свайп
+  const moveIntervalId = useRef<number | null>(null);
+  const continuousMovesTimeoutId = useRef<number | null>(null);
+  const isInContinuousModeRef = useRef(false);
+  const hasProcessedAsSwipeRef = useRef(false);
 
-  const MOVE_THRESHOLD = 15; // Минимум пиксель для начала движения
-  const HOLD_TIME_FOR_CONTINUOUS = 300; // 300ms удержания для включения continuous
-  const CONTINUOUS_MOVE_INTERVAL = 80; // Частота движений при continuous
+  // 🔧 ВОССТАНАВЛИВАЕМ ОРИГИНАЛЬНЫЕ НАСТРОЙКИ ДЛЯ ТАПОВ
+  const MOVE_THRESHOLD = 15;
+  const HOLD_TIME_FOR_CONTINUOUS = 300;
+  const CONTINUOUS_MOVE_INTERVAL = 80;
 
   const startContinuousMove = useCallback(
     (direction: 'left' | 'right' | 'down') => {
-      if (moveIntervalRef.current) {
-        clearInterval(moveIntervalRef.current);
+      if (moveIntervalId.current) {
+        clearInterval(moveIntervalId.current);
+        moveIntervalId.current = null;
       }
 
       currentDirectionRef.current = direction;
       isInContinuousModeRef.current = true;
-      console.log(`🔁 Начинаем НЕПРЕРЫВНОЕ движение: ${direction}`);
+      console.log(`🔁 Continuous mode: ${direction}`);
 
-      // Вызываем коллбэк один раз сразу
       if (direction === 'left' && callbacks.onContinuousLeft) {
         callbacks.onContinuousLeft();
       } else if (direction === 'right' && callbacks.onContinuousRight) {
@@ -50,8 +48,7 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
         callbacks.onContinuousDown();
       }
 
-      // Потом создаём интервал
-      moveIntervalRef.current = setInterval(() => {
+      moveIntervalId.current = setInterval(() => {
         if (direction === 'left' && callbacks.onContinuousLeft) {
           callbacks.onContinuousLeft();
         } else if (direction === 'right' && callbacks.onContinuousRight) {
@@ -59,16 +56,16 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
         } else if (direction === 'down' && callbacks.onContinuousDown) {
           callbacks.onContinuousDown();
         }
-      }, CONTINUOUS_MOVE_INTERVAL);
+      }, CONTINUOUS_MOVE_INTERVAL) as unknown as number;
     },
     [callbacks]
   );
 
   const stopContinuousMove = useCallback(() => {
-    if (moveIntervalRef.current) {
-      console.log(`🛑 Останавливаем непрерывное движение`);
-      clearInterval(moveIntervalRef.current);
-      moveIntervalRef.current = null;
+    if (moveIntervalId.current) {
+      console.log(`🛑 Stopping continuous move`);
+      clearInterval(moveIntervalId.current);
+      moveIntervalId.current = null;
       isInContinuousModeRef.current = false;
       currentDirectionRef.current = null;
 
@@ -87,20 +84,17 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
 
     console.log('🟢 Touch START at:', x, y);
 
-    // 🔴 НОВОЕ: Таймер для активации continuous после HOLD_TIME_FOR_CONTINUOUS
-    if (continuousMovesTimeoutRef.current) {
-      clearTimeout(continuousMovesTimeoutRef.current);
+    if (continuousMovesTimeoutId.current) {
+      clearTimeout(continuousMovesTimeoutId.current);
     }
 
-    continuousMovesTimeoutRef.current = setTimeout(() => {
-      // Если мы здесь - значит пользователь держит палец уже 300ms
-      // И ещё не было обработки как быстрого свайпа
+    continuousMovesTimeoutId.current = setTimeout(() => {
       if (!hasProcessedAsSwipeRef.current && touchStart.current) {
         console.log('⏱️ Удержание 300ms - переходим в режим CONTINUOUS');
         isInContinuousModeRef.current = true;
       }
-    }, HOLD_TIME_FOR_CONTINUOUS);
-  }, []);
+    }, HOLD_TIME_FOR_CONTINUOUS) as unknown as number;
+  }, [HOLD_TIME_FOR_CONTINUOUS]);
 
   const handleTouchMove = useCallback(
     (event: GestureResponderEvent) => {
@@ -112,7 +106,7 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
       const currentTime = Date.now();
       const duration = currentTime - touchStart.current.time;
 
-      // 🔴 КРИТИЧНО: Если уже прошло 300ms И есть движение - переходим в continuous
+      // 🔥 КРИТИЧНО: Если уже прошло 300ms И есть движение - переходим в continuous
       if (duration >= HOLD_TIME_FOR_CONTINUOUS && !isInContinuousModeRef.current) {
         console.log('⏱️ Время истекло + движение = CONTINUOUS MODE');
         isInContinuousModeRef.current = true;
@@ -146,9 +140,9 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
   const handleTouchEnd = useCallback(
     (event: GestureResponderEvent) => {
       // Очищаем таймер удержания
-      if (continuousMovesTimeoutRef.current) {
-        clearTimeout(continuousMovesTimeoutRef.current);
-        continuousMovesTimeoutRef.current = null;
+      if (continuousMovesTimeoutId.current) {
+        clearTimeout(continuousMovesTimeoutId.current);
+        continuousMovesTimeoutId.current = null;
       }
 
       // Останавливаем continuous движение если оно было
@@ -159,7 +153,7 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
         return;
       }
 
-      // 🔴 КРИТИЧНО: Если мы в continuous режиме - не обрабатываем как свайп
+      // 🔥 КРИТИЧНО: Если мы в continuous режиме - не обрабатываем как свайп
       if (isInContinuousModeRef.current) {
         console.log('✋ Были в CONTINUOUS режиме - игнорируем свайп');
         touchStart.current = null;
@@ -183,13 +177,37 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
 
       hasProcessedAsSwipeRef.current = true;
 
-      // 🔴 TAP обработка (особенно важна для поворота)
+      // 🔥 ВАЖНОЕ ИСПРАВЛЕНИЕ: Возвращаем оригинальную логику определения тапа
+      // Эта логика была в вашем оригинальном коде и она работала правильно
+      const TAP_DISTANCE_THRESHOLD = 10; // Пикселей
+      const TAP_TIME_THRESHOLD = 150; // Миллисекунд
+      
       if (
-        Math.abs(deltaX) < 10 &&
-        Math.abs(deltaY) < 10 &&
-        duration < 150
+        Math.abs(deltaX) < TAP_DISTANCE_THRESHOLD &&
+        Math.abs(deltaY) < TAP_DISTANCE_THRESHOLD &&
+        duration < TAP_TIME_THRESHOLD
       ) {
-        console.log('👆 TAP - вращаем!');
+        console.log('👆 TAP detected - duration:', duration, 'ms, distance:', Math.sqrt(deltaX*deltaX + deltaY*deltaY).toFixed(1), 'px');
+        if (callbacks.onTap) {
+          callbacks.onTap();
+        }
+        touchStart.current = null;
+        currentTouchPos.current = null;
+        return;
+      }
+
+      // 🔥 ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если был очень короткий тап, но с небольшим движением
+      // (защита от случайных микродвижений при тапе)
+      const MAX_TAP_WITH_MOVEMENT = 15; // Максимальное движение для тапа
+      const MAX_TAP_TIME_WITH_MOVEMENT = 200; // Максимальное время для тапа с движением
+      
+      if (
+        Math.abs(deltaX) < MAX_TAP_WITH_MOVEMENT &&
+        Math.abs(deltaY) < MAX_TAP_WITH_MOVEMENT &&
+        duration < MAX_TAP_TIME_WITH_MOVEMENT &&
+        (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) // Но движение должно быть заметным
+      ) {
+        console.log('👆 TAP with small movement detected');
         if (callbacks.onTap) {
           callbacks.onTap();
         }
@@ -251,11 +269,11 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
 
   useEffect(() => {
     return () => {
-      if (moveIntervalRef.current) {
-        clearInterval(moveIntervalRef.current);
+      if (moveIntervalId.current) {
+        clearInterval(moveIntervalId.current);
       }
-      if (continuousMovesTimeoutRef.current) {
-        clearTimeout(continuousMovesTimeoutRef.current);
+      if (continuousMovesTimeoutId.current) {
+        clearTimeout(continuousMovesTimeoutId.current);
       }
     };
   }, []);
@@ -273,5 +291,13 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
 
   return {
     panHandlers: panResponder.panHandlers,
+    forceStopContinuous: () => {
+      console.log('🛑 Forced stop continuous mode');
+      stopContinuousMove();
+      if (continuousMovesTimeoutId.current) {
+        clearTimeout(continuousMovesTimeoutId.current);
+        continuousMovesTimeoutId.current = null;
+      }
+    },
   };
 };

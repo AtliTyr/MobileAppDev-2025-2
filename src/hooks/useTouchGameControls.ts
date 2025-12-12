@@ -1,4 +1,4 @@
-// hooks/useTouchGameControls.ts - БЕЗ интервалов, просто relay коллбэков
+// hooks/useTouchGameControls.ts
 
 import { useCallback } from 'react';
 import { useSwipeControls } from './useSwipeControls';
@@ -27,9 +27,10 @@ export const useTouchGameControls = ({
           onHardDrop();
           break;
         case 'fast':
-          for (let i = 0; i < 5; i++) {
-            setTimeout(() => onSoftDrop(50), i * 50);
-          }
+          // 🔥 Упрощаем для лучшей отзывчивости
+          setTimeout(() => onSoftDrop(50), 0);
+          setTimeout(() => onSoftDrop(50), 50);
+          setTimeout(() => onSoftDrop(50), 100);
           break;
         case 'slow':
           onSoftDrop(300);
@@ -62,13 +63,13 @@ export const useTouchGameControls = ({
     console.log('🛑 Непрерывное движение остановлено');
   }, []);
 
-  // 🔴 Передаём ВСЕ коллбэки в useSwipeControls
+  // 🔴 Важное исправление: убедитесь, что onTap передается правильно
   const swipeCallbacks = {
     onSwipeLeft: onMoveLeft,
     onSwipeRight: onMoveRight,
     onSwipeDown: handleSwipeDown,
-    onSwipeUp: onRotate,
-    onTap: onRotate,
+    onSwipeUp: onRotate, // Свайп вверх = поворот
+    onTap: onRotate, // 🔥 Тап = поворот (ВАЖНО!)
     onContinuousLeft: handleContinuousLeft,
     onContinuousRight: handleContinuousRight,
     onContinuousDown: handleContinuousDown,
