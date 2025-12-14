@@ -243,7 +243,7 @@ export const useSwipeControls = (callbacks: SwipeCallbacks) => {
               )}, deltaY=${deltaY.toFixed(1)}`
             );
 
-            if (Math.abs(deltaY) > 150 && velocity > 2.0) {
+            if (Math.abs(deltaY) > 120 && velocity > 1.5) {
               speed = 'instant';
               console.log('💥 HARD DROP');
             } else if (Math.abs(deltaY) > 80 && velocity > 1.0) {

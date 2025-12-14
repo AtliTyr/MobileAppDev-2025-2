@@ -73,7 +73,7 @@ export default function GameScreen({ navigation, route }: Props) {
   const [isControlsDisabled, setIsControlsDisabled] = useState(false);
 
   const [recognitionModeActive, setRecognitionModeActive] = useState(false);
-  const [recognitionTimer, setRecognitionTimer] = useState(120);
+  const [recognitionTimer, setRecognitionTimer] = useState(10);
   const [selectedPath, setSelectedPath] = useState<LetterPosition[]>([]);
   const [recognitionCooldown, setRecognitionCooldown] = useState(0);
 
@@ -781,7 +781,7 @@ export default function GameScreen({ navigation, route }: Props) {
     }
 
     console.log('🔍 Активируем режим распознавания');
-    setRecognitionTimer(120);
+    setRecognitionTimer(10);
     setRecognitionModeActive(true);
     actions.pause();
     stopBackgroundMusic();
@@ -1474,7 +1474,7 @@ export default function GameScreen({ navigation, route }: Props) {
           board={recognitionBoard}
           timerRemaining={recognitionTimer}
           onClose={handleRecognitionClose}
-          onTimerTick={() => setRecognitionTimer(120)}
+          onTimerTick={() => setRecognitionTimer(10)}
         />
 
         {celebrationType && (

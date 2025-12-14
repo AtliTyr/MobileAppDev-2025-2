@@ -27,7 +27,6 @@ interface RecognitionModeOverlayProps {
 
 // Размер ячейки
 const CELL_SIZE = 30;
-const BOARD_Y_OFFSET = CELL_SIZE; // 30
 
 export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
   isVisible,
@@ -143,7 +142,7 @@ export const RecognitionModeOverlay: React.FC<RecognitionModeOverlayProps> = ({
     }
 
     const relX = pageX - boardX;
-    const relY = pageY - boardY - BOARD_Y_OFFSET; // <<< ключевая правка
+    const relY = pageY - boardY;
 
     const cell = getCellFromPoint(relX, relY);
     if (!cell) return;
